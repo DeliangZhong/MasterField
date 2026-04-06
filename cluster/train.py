@@ -215,14 +215,10 @@ def main():
         params, losses = trainer.train(key, verbose=True)
 
         # Extract moment matrix
+        tag = f"{args.model}_g{args.coupling}_L{args.max_word_length}"
         Omega = np.array(trainer.params_to_moment_matrix(params))
-        np.save(
-            os.path.join(args.output_dir, f"moment_matrix_{args.model}_g{args.coupling}.npy"), Omega
-        )
-        np.save(
-            os.path.join(args.output_dir, f"losses_{args.model}_g{args.coupling}.npy"),
-            np.array(losses),
-        )
+        np.save(os.path.join(args.output_dir, f"moment_matrix_{tag}.npy"), Omega)
+        np.save(os.path.join(args.output_dir, f"losses_{tag}.npy"), np.array(losses))
 
         eigvals = np.linalg.eigvalsh(Omega)
         print(f"\n  Moment matrix eigenvalues (first 5): {eigvals[:5]}")
