@@ -706,8 +706,74 @@ class MultiMatrixTrainer:
                 if combined not in self._word_to_ij and len(combined) <= max_word_length:
                     self._word_to_ij[combined] = (i, j)
 
+        # Pre-compute symmetry constraint index pairs
+        self._precompute_symmetry_constraints()
+
         # Pre-compute SD equation structure as index arrays for JIT
         self._precompute_sd_structure()
+
+    def _precompute_symmetry_constraints(self):
+        """Pre-compute index pairs for cyclicity and exchange symmetry.
+
+        Cyclicity: tr[w] = tr[cyclic rotation of w]
+            e.g., tr[M₁M₂] = tr[M₂M₁]
+        Exchange symmetry (M₁ ↔ M₂): tr[w] = tr[w with 0↔1 swapped]
+            e.g., tr[M₁²] = tr[M₂²]
+        Z₂ symmetry (M → -M): tr[odd-length words] = 0
+        """
+        from schwinger_dyson import cyclic_reduce
+
+        # Build word → basis index mapping
+        word_to_basis = {w: j for j, w in enumerate(self.basis_words)}
+
+        # --- Cyclicity constraints: Ω[0,j1] == Ω[0,j2] for cyclic pairs ---
+        cyclic_pairs_j1 = []
+        cyclic_pairs_j2 = []
+        seen_cyclic = set()
+        for j, w in enumerate(self.basis_words):
+            if len(w) < 2:
+                continue
+            canon = cyclic_reduce(w)
+            if canon != w and canon in word_to_basis:
+                pair = (min(j, word_to_basis[canon]), max(j, word_to_basis[canon]))
+                if pair not in seen_cyclic:
+                    seen_cyclic.add(pair)
+                    cyclic_pairs_j1.append(pair[0])
+                    cyclic_pairs_j2.append(pair[1])
+
+        self._cyclic_j1 = jnp.array(cyclic_pairs_j1, dtype=jnp.int32)
+        self._cyclic_j2 = jnp.array(cyclic_pairs_j2, dtype=jnp.int32)
+        self._n_cyclic = len(cyclic_pairs_j1)
+
+        # --- Exchange symmetry: Ω[0,j1] == Ω[0,j2] for M₁↔M₂ swapped ---
+        exchange_pairs_j1 = []
+        exchange_pairs_j2 = []
+        seen_exchange = set()
+        if self.n == 2:
+            for j, w in enumerate(self.basis_words):
+                if not w:
+                    continue
+                swapped = tuple(1 - x for x in w)
+                if swapped in word_to_basis and swapped != w:
+                    j2 = word_to_basis[swapped]
+                    pair = (min(j, j2), max(j, j2))
+                    if pair not in seen_exchange:
+                        seen_exchange.add(pair)
+                        exchange_pairs_j1.append(pair[0])
+                        exchange_pairs_j2.append(pair[1])
+
+        self._exchange_j1 = jnp.array(exchange_pairs_j1, dtype=jnp.int32)
+        self._exchange_j2 = jnp.array(exchange_pairs_j2, dtype=jnp.int32)
+        self._n_exchange = len(exchange_pairs_j1)
+
+        # --- Z₂ symmetry: tr[odd-length words] = 0 ---
+        odd_indices = []
+        for j, w in enumerate(self.basis_words):
+            if len(w) % 2 == 1:
+                odd_indices.append(j)
+
+        self._odd_j = jnp.array(odd_indices, dtype=jnp.int32)
+        self._n_odd = len(odd_indices)
 
     def _lookup_ij(self, word: tuple) -> tuple[int, int] | None:
         """Get (i, j) index for a word, or None if truncated."""
@@ -888,6 +954,21 @@ class MultiMatrixTrainer:
 
         # Normalisation: Ω_{0,0} = tr[I] = 1
         loss += 100.0 * (Omega[0, 0] - 1.0) ** 2
+
+        # Cyclicity: tr[w] = tr[cyclic rotation of w]
+        if self._n_cyclic > 0:
+            cyc_diff = Omega[0, self._cyclic_j1] - Omega[0, self._cyclic_j2]
+            loss += 10.0 * jnp.mean(cyc_diff**2)
+
+        # Exchange symmetry (M₁ ↔ M₂): tr[w(M₁,M₂)] = tr[w(M₂,M₁)]
+        if self._n_exchange > 0:
+            exc_diff = Omega[0, self._exchange_j1] - Omega[0, self._exchange_j2]
+            loss += 10.0 * jnp.mean(exc_diff**2)
+
+        # Z₂ symmetry: tr[odd-length words] = 0
+        if self._n_odd > 0:
+            odd_vals = Omega[0, self._odd_j]
+            loss += 10.0 * jnp.mean(odd_vals**2)
 
         return loss
 
