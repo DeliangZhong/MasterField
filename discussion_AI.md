@@ -10,6 +10,52 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-9: Two-Matrix Scaling Study with Symmetry (Apr 6, 2026)
+
+### Symmetry constraints added
+
+Three constraint types pre-computed at init and enforced in the loss:
+- **Cyclicity**: tr[w] = tr[cyclic rotation of w] (5 pairs at L=6)
+- **Exchange M₁↔M₂**: tr[w(M₁,M₂)] = tr[w(M₂,M₁)] (7 pairs at L=6)
+- **Z₂ (M→-M)**: tr[odd-length words] = 0 (10 terms at L=6)
+
+Verification at L=6: |tr[M₁²]-tr[M₂²]| = 0, |tr[M₁M₂]-tr[M₂M₁]| = 0, |tr[M₁]| = 3e-21.
+
+### Scaling study results (g=1.0, commutator-squared, with symmetry)
+
+| L | dim | loss | min eig | tr[M₁²] | tr[M₁M₂] | time |
+|---|-----|------|---------|---------|----------|------|
+| 4 | 7 | 6.4e-253 | 0.961 | -0.003 | -0.004 | 17s |
+| 6 | 15 | 2.2e-34 | 0.572 | 0.179 | 0.335 | 21s |
+| 8 | 31 | 6.5e-38 | 0.426 | 0.348 | 0.000 | 40s |
+
+**Not yet converged**: tr[M₁²] changes 0.18→0.35 from L=6 to L=8. Scaling study extended to L=4..16 to find convergence. L=14 (dim=255) est. ~1-2 hr, L=16 (dim=511) est. ~6-12 hr.
+
+### Cluster setup
+
+Standalone `cluster/` package with PBS scripts. Uses EasyBuild modules (`jax/0.4.25-gfbf-2023a`, `SciPy-bundle/2023.07-gfbf-2023a`). Auto-installs `optax` to user site-packages.
+
+---
+
+## Implementation-8: One-Matrix Quartic via scipy SLSQP (Apr 6, 2026)
+
+### Problem
+
+Direct moment parametrization fails for quartic: SD equations are underdetermined (always 2 more unknowns than equations). Without PSD, optimizer finds spurious solutions (SD loss=0 but wrong moments). Continuation in g and relative residuals help stability but don't fix uniqueness.
+
+### Solution
+
+scipy.optimize.minimize with SLSQP + Hankel PSD constraint:
+- Objective: SD residuals (relative)
+- Constraint: min eigenvalue of even Hankel submatrix G_{ij}=m_{2(i+j)} ≥ 0
+- Key fix: Hankel dim must be n_even//2+1 (not n_even) to avoid truncation artifacts making the matrix falsely non-PSD
+
+### Results
+
+All couplings g=0.1..5.0 converge (SD loss < 1e-15). Low moments within 3-5% of exact. Quartic g=0.5 at L=12: m₂=0.614 (exact 0.631), m₄=0.773 (exact 0.738). Remaining error from underdetermined high moments.
+
+---
+
 ## Implementation-7: Code Fixes & Training Pipeline (Apr 6, 2026)
 
 ### Fixes applied (CLAUDE_CODE_INSTRUCTIONS.md)
@@ -17,28 +63,13 @@
 All 7 listed fixes implemented. Additionally discovered and fixed:
 - **schwinger_dyson.py SD indexing**: used `n+k-1` (wrong), fixed to `n+k`
 - **Eigenvalue density formula**: code doubled g-dependent terms. Correct: P(x) = gx² + 1 + ga²/2
-- **Free cumulant κ_6**: hardcoded formula was classical, not free. Replaced all hardcoded formulas with general recursion via functional equation z·G = 1 + Σ κ_k G^k — works to arbitrary order
+- **Free cumulant κ_6**: hardcoded formula was classical, not free. Replaced with general recursion via z·G = 1 + Σ κ_k G^k — works to arbitrary order
 
 ### Training results
 
 **Gaussian (Stage 1a)**: Perfect. Loss = 0, all moments match Catalan numbers to machine precision.
-
-**Quartic g=0.5 (Stage 1b)**: NOT CONVERGING with direct moment parametrization.
-
-Root cause: the SD equations are **underdetermined** — at L=14, there are 5 non-trivial equations for 7 unknowns (m_2,...,m_14 even). The system is always 2 unknowns short because each SD equation introduces one new high moment.
-
-Without enforcing the **Hankel moment matrix PSD constraint**, the optimizer finds spurious solutions (SD loss → 0 but moments wrong). Attempts with:
-- Relative residuals: moments diverge less but still wrong
-- Continuation in g (0→0.1→...→0.5): converges to wrong solution
-- Soft PSD penalty: either too weak (ignored) or too strong (dominates)
-
-**Two-matrix coupled (Stage 3 smoke test)**: Working. JIT-compiled trainer, loss → 3.75e-24 at L=4.
-
-### Next step needed
-
-**Hankel-Cholesky parametrization for one-matrix**: Replace direct `m_even_raw` with Cholesky factorization of the even Hankel matrix G_{ij} = m_{2(i+j)}. Extract moments from G_{0,k}. Add Hankel structure loss to complement PSD (which is automatic from Cholesky). This is the correct physics — guarantees moments come from a valid positive measure.
-
-Alternative: the quartic validation already works via exact eigenvalue density integration (SD residuals < 1e-5). The ML approach is only essential for the multi-matrix case where no exact solution exists.
+**Quartic (Stage 1b)**: Solved via scipy SLSQP (see Implementation-8).
+**Two-matrix (Stage 3)**: JIT-compiled trainer converges. Symmetry constraints added (see Implementation-9).
 
 ---
 
