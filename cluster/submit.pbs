@@ -1,0 +1,60 @@
+#!/bin/bash
+#PBS -N master_field
+#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o master_field.log
+
+# ── Configuration ──────────────────────────────────────────
+# Edit these for your run:
+MODEL="two_matrix_coupled"
+COUPLING="1.0"
+MAX_WORD_LENGTH="6"
+N_EPOCHS="20000"
+LR="5e-4"
+INTERACTION="commutator_squared"
+SEED="42"
+
+# ── Environment setup ─────────────────────────────────────
+cd $PBS_O_WORKDIR
+
+# Load modules (adjust for your cluster)
+# module load python/3.10
+# module load cuda/12.0   # uncomment if GPU available
+
+# Create virtual environment if needed
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+else
+    source venv/bin/activate
+fi
+
+# JAX CPU configuration (comment out if using GPU)
+export JAX_PLATFORM_NAME=cpu
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
+
+# ── Run ───────────────────────────────────────────────────
+echo "============================================================"
+echo "  Master Field ML — ${MODEL}, g=${COUPLING}, L=${MAX_WORD_LENGTH}"
+echo "  Epochs: ${N_EPOCHS}, LR: ${LR}, Interaction: ${INTERACTION}"
+echo "  Host: $(hostname), Start: $(date)"
+echo "============================================================"
+
+mkdir -p results
+
+python3 train.py \
+    --model ${MODEL} \
+    --coupling ${COUPLING} \
+    --max_word_length ${MAX_WORD_LENGTH} \
+    --n_epochs ${N_EPOCHS} \
+    --lr ${LR} \
+    --interaction ${INTERACTION} \
+    --seed ${SEED} \
+    --output_dir results
+
+echo "============================================================"
+echo "  Finished: $(date)"
+echo "============================================================"
