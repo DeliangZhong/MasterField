@@ -303,7 +303,10 @@ def sd_loss_one_matrix(moments: jnp.ndarray, v_prime_coeffs: list[float]) -> jnp
             if j <= K and n - j - 1 <= K:
                 rhs += moments[j] * moments[n - j - 1]
 
-        total_loss += (lhs - rhs) ** 2
+        # Use relative residual to prevent high-order equations from dominating
+        # (moments grow factorially, so absolute residuals at high n are huge)
+        scale = jnp.maximum(jnp.abs(lhs) + jnp.abs(rhs), 1.0)
+        total_loss += ((lhs - rhs) / scale) ** 2
         n_eqs += 1
 
     return total_loss / max(n_eqs, 1)
@@ -447,19 +450,29 @@ class MasterFieldTrainer:
             raise NotImplementedError("Multi-matrix moments extraction")
 
     def loss_fn(self, params: dict) -> jnp.ndarray:
-        """Total loss function."""
+        """Total loss = SD residuals + normalisation + PSD penalty."""
         moments = self.moments_from_params(params)
 
-        # SD loss
+        # SD loss (relative residuals)
         l_sd = sd_loss_one_matrix(moments, self.v_prime)
 
         # Normalisation
         l_norm = normalisation_loss(moments)
 
-        # Symmetry (odd moments = 0, already enforced by construction)
-        # l_sym = symmetry_loss(moments)
+        # Soft PSD penalty on even Hankel matrix G_{ij} = m_{2(i+j)}
+        m_even = params["m_even_raw"]
+        n_even = len(m_even)
+        half_n = min(n_even // 2 + 1, 5)  # small submatrix to keep penalty tractable
+        G = jnp.zeros((half_n, half_n))
+        for i in range(half_n):
+            for j in range(half_n):
+                idx = i + j
+                if idx < n_even:
+                    G = G.at[i, j].set(m_even[idx])
+        eigs = jnp.linalg.eigvalsh(G)
+        l_psd = jnp.sum(jnp.minimum(eigs, 0.0) ** 2)
 
-        return l_sd + 100.0 * l_norm
+        return l_sd + 100.0 * l_norm + l_psd
 
     @partial(jit, static_argnums=(0,))
     def train_step(self, params, opt_state):
@@ -469,24 +482,65 @@ class MasterFieldTrainer:
         new_params = optax.apply_updates(params, updates)
         return new_params, new_opt_state, loss
 
-    def train(self, key: jax.Array, verbose: bool = True):
-        """Run the full training loop."""
-        self.init(key)
-
+    def _run_epochs(self, n_epochs: int, verbose: bool, label: str = ""):
+        """Run n_epochs of training, returning losses."""
         losses = []
-        for epoch in range(self.n_epochs):
+        # Reset optimizer for this continuation stage
+        schedule = optax.warmup_cosine_decay_schedule(
+            init_value=self.lr * 0.01,
+            peak_value=self.lr,
+            warmup_steps=min(200, n_epochs // 5),
+            decay_steps=n_epochs,
+        )
+        self.optimizer = optax.chain(
+            optax.clip_by_global_norm(1.0),
+            optax.adam(schedule),
+        )
+        self.opt_state = self.optimizer.init(self.params)
+
+        for epoch in range(n_epochs):
             self.params, self.opt_state, loss = self.train_step(self.params, self.opt_state)
             losses.append(float(loss))
 
-            if verbose and (epoch % 500 == 0 or epoch == self.n_epochs - 1):
+            if verbose and (epoch % 500 == 0 or epoch == n_epochs - 1):
                 moments = self.moments_from_params(self.params)
                 print(
-                    f"Epoch {epoch:5d}: loss = {loss:.2e}, "
+                    f"{label}Epoch {epoch:5d}: loss = {loss:.2e}, "
                     f"m_2 = {float(moments[2]):.6f}, "
                     f"m_4 = {float(moments[4]):.6f}"
                 )
+        return losses
 
-        return self.params, losses
+    def train(self, key: jax.Array, verbose: bool = True):
+        """Run the full training loop with continuation for non-Gaussian models."""
+        self.init(key)
+
+        if self.model_name == "gaussian" or self.g == 0:
+            # Gaussian is already exact at initialisation
+            losses = self._run_epochs(self.n_epochs, verbose)
+            return self.params, losses
+
+        # Continuation: gradually increase coupling from 0 to target g
+        target_g = self.g
+        n_stages = max(5, int(abs(target_g) * 10))
+        g_values = [target_g * (i + 1) / n_stages for i in range(n_stages)]
+        epochs_per_stage = max(self.n_epochs // n_stages, 500)
+
+        all_losses = []
+        for stage, g_val in enumerate(g_values):
+            # Update V' coefficients for this coupling
+            if self.model_name == "quartic":
+                self.v_prime = [0.0, 1.0, 0.0, g_val]
+            elif self.model_name == "sextic":
+                self.v_prime = [0.0, 1.0, 0.0, g_val, 0.0, g_val**2]
+
+            if verbose:
+                print(f"\n  --- Continuation stage {stage + 1}/{n_stages}: g = {g_val:.4f} ---")
+
+            losses = self._run_epochs(epochs_per_stage, verbose)
+            all_losses.extend(losses)
+
+        return self.params, all_losses
 
     def get_solution(self) -> dict:
         """Extract the solution after training, including master field operator."""

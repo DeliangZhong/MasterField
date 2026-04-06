@@ -10,6 +10,38 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-7: Code Fixes & Training Pipeline (Apr 6, 2026)
+
+### Fixes applied (CLAUDE_CODE_INSTRUCTIONS.md)
+
+All 7 listed fixes implemented. Additionally discovered and fixed:
+- **schwinger_dyson.py SD indexing**: used `n+k-1` (wrong), fixed to `n+k`
+- **Eigenvalue density formula**: code doubled g-dependent terms. Correct: P(x) = gx² + 1 + ga²/2
+- **Free cumulant κ_6**: hardcoded formula was classical, not free. Replaced all hardcoded formulas with general recursion via functional equation z·G = 1 + Σ κ_k G^k — works to arbitrary order
+
+### Training results
+
+**Gaussian (Stage 1a)**: Perfect. Loss = 0, all moments match Catalan numbers to machine precision.
+
+**Quartic g=0.5 (Stage 1b)**: NOT CONVERGING with direct moment parametrization.
+
+Root cause: the SD equations are **underdetermined** — at L=14, there are 5 non-trivial equations for 7 unknowns (m_2,...,m_14 even). The system is always 2 unknowns short because each SD equation introduces one new high moment.
+
+Without enforcing the **Hankel moment matrix PSD constraint**, the optimizer finds spurious solutions (SD loss → 0 but moments wrong). Attempts with:
+- Relative residuals: moments diverge less but still wrong
+- Continuation in g (0→0.1→...→0.5): converges to wrong solution
+- Soft PSD penalty: either too weak (ignored) or too strong (dominates)
+
+**Two-matrix coupled (Stage 3 smoke test)**: Working. JIT-compiled trainer, loss → 3.75e-24 at L=4.
+
+### Next step needed
+
+**Hankel-Cholesky parametrization for one-matrix**: Replace direct `m_even_raw` with Cholesky factorization of the even Hankel matrix G_{ij} = m_{2(i+j)}. Extract moments from G_{0,k}. Add Hankel structure loss to complement PSD (which is automatic from Cholesky). This is the correct physics — guarantees moments come from a valid positive measure.
+
+Alternative: the quartic validation already works via exact eigenvalue density integration (SD residuals < 1e-5). The ML approach is only essential for the multi-matrix case where no exact solution exists.
+
+---
+
 ## Discussion-5: Scaling Strategies & Future Directions (Apr 6, 2026)
 
 ### Scaling to larger truncation
