@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Results (large binary files — commit selectively)
+results/*.npy
+
+# Claude Code personal config
+CLAUDE.local.md
+
+# Environment
+.env
+.venv/
