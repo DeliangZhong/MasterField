@@ -28,7 +28,7 @@ echo "Master Field Scaling Study — g=${COUPLING}"
 echo "Start: $(date)"
 echo ""
 
-for L in 4 6 8; do
+for L in 4 6 8 10 12; do
     echo "============================================================"
     echo "  L = ${L}, $(date)"
     echo "============================================================"
