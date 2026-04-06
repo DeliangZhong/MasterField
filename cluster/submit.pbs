@@ -18,18 +18,17 @@ SEED="42"
 # ── Environment setup ─────────────────────────────────────
 cd $PBS_O_WORKDIR
 
-# Load modules (adjust for your cluster)
-# module load python/3.10
-# module load cuda/12.0   # uncomment if GPU available
+# Conda environment
+CONDA_ENV="master_field"
+source "$(conda info --base)/etc/profile.d/conda.sh"
 
-# Create virtual environment if needed
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip
+if ! conda env list | grep -q "^${CONDA_ENV} "; then
+    echo "Creating conda env ${CONDA_ENV}..."
+    conda create -n ${CONDA_ENV} python=3.11 -y
+    conda activate ${CONDA_ENV}
     pip install -r requirements.txt
 else
-    source venv/bin/activate
+    conda activate ${CONDA_ENV}
 fi
 
 # JAX CPU configuration (comment out if using GPU)

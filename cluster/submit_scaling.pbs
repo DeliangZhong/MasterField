@@ -13,13 +13,17 @@ INTERACTION="commutator_squared"
 
 cd $PBS_O_WORKDIR
 
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip
+# Conda environment
+CONDA_ENV="master_field"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+
+if ! conda env list | grep -q "^${CONDA_ENV} "; then
+    echo "Creating conda env ${CONDA_ENV}..."
+    conda create -n ${CONDA_ENV} python=3.11 -y
+    conda activate ${CONDA_ENV}
     pip install -r requirements.txt
 else
-    source venv/bin/activate
+    conda activate ${CONDA_ENV}
 fi
 
 export JAX_PLATFORM_NAME=cpu
