@@ -8,15 +8,14 @@ an algebraic equation. Given R(ζ), the eigenvalue density is:
 The master field function M(z) = R^{-1}(z) (compositional inverse)
 determines the Voiculescu form coefficients.
 """
+
 import numpy as np
 from scipy.optimize import brentq
-from scipy.integrate import quad
-from typing import Callable, Tuple, Optional
-
 
 # ══════════════════════════════════════════════════════════
 #  Gaussian model: V(M) = (1/2) M²
 # ══════════════════════════════════════════════════════════
+
 
 def gaussian_resolvent(zeta: complex) -> complex:
     """R(ζ) = (ζ - √(ζ²-4)) / 2 for the Gaussian (Wigner semicircle)."""
@@ -27,7 +26,7 @@ def gaussian_density(x: np.ndarray) -> np.ndarray:
     """Wigner semicircle: ρ(x) = (1/2π)√(4-x²) for |x|<2."""
     rho = np.zeros_like(x)
     mask = np.abs(x) < 2
-    rho[mask] = np.sqrt(4 - x[mask]**2) / (2 * np.pi)
+    rho[mask] = np.sqrt(4 - x[mask] ** 2) / (2 * np.pi)
     return rho
 
 
@@ -38,6 +37,7 @@ def gaussian_moments(max_power: int) -> np.ndarray:
     for k in range(1, max_power // 2 + 1):
         # C_k = (2k)! / ((k+1)! k!)
         from math import comb
+
         moments[2 * k] = comb(2 * k, k) / (k + 1)
     return moments
 
@@ -56,12 +56,13 @@ def gaussian_master_field_function(z: complex) -> complex:
 #  Quartic model: V(M) = (1/2) M² + (g/4) M⁴
 # ══════════════════════════════════════════════════════════
 
+
 def quartic_resolvent(zeta: complex, g: float) -> complex:
     """Resolvent for V(M) = M²/2 + g M⁴/4.
-    
+
     Satisfies: g R³ - ζ g R² + (1 + 2g a²) R - ζ = 0
     where a² is the edge of the eigenvalue support, determined self-consistently.
-    
+
     For small g we can solve perturbatively or numerically.
     """
     # The resolvent satisfies the cubic from the SD equation:
@@ -69,7 +70,7 @@ def quartic_resolvent(zeta: complex, g: float) -> complex:
     # R(ζ) = 1/(ζ - Σ(R))  with self-energy Σ
     # For quartic: SD equation gives
     # ζ R = 1 + R² + g [R⁴ + 2 a² R²]  (schematically)
-    # 
+    #
     # Easier: solve for the endpoint a and density directly.
     # The eigenvalue density has support [-a, a] with
     # ρ(x) = (1/2π)(1 + 2g x²) √(a² - x²) × (normalisation)
@@ -79,53 +80,53 @@ def quartic_resolvent(zeta: complex, g: float) -> complex:
 
 def quartic_moments_from_sd(g: float, max_power: int = 20) -> np.ndarray:
     """Compute moments by iterating Schwinger-Dyson equations.
-    
+
     For V(M) = M²/2 + g M⁴/4, V'(M) = M + g M³.
     SD equation: tr[V'(M) M^n] = Σ_{j=0}^{n-1} tr[M^j] tr[M^{n-j-1}]
-    
+
     i.e., tr[M^{n+1}] + g tr[M^{n+3}] = Σ_{j=0}^{n-1} m_j m_{n-j-1}
-    
+
     where m_k = tr[M^k].  Use m_{odd} = 0 by symmetry.
     """
     # Maximum moment index we can reach
     M = max_power + 4  # need some headroom
     m = np.zeros(M)
     m[0] = 1.0  # tr[M⁰] = 1
-    
+
     # The SD equations for even moments (odd = 0 by Z₂ symmetry):
     # m_{n+1} + g m_{n+3} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
-    # 
+    #
     # For n even = 2p:
     # m_{2p+1} + g m_{2p+3} = Σ m_j m_{2p-j-1}
     # Since m_{odd}=0, the LHS = g m_{2p+3} and
-    # RHS = Σ_{j even} m_j m_{2p-j-1} but 2p-j-1 must also be even, 
+    # RHS = Σ_{j even} m_j m_{2p-j-1} but 2p-j-1 must also be even,
     # so j must be odd → all zero. Wait, let me redo this.
-    # 
+    #
     # Actually for n odd = 2p+1 (so that n+1 is even):
     # m_{2p+2} + g m_{2p+4} = Σ_{j=0}^{2p} m_j m_{2p-j}
     # RHS = Σ_{k=0}^{p} m_{2k} m_{2(p-k)} (only even-even survives)
     #
     # This gives m_{2p+2} in terms of m_{2p+4} and lower moments.
     # We need to solve the system. Start from m_0=1, m_2 unknown.
-    # 
+    #
     # For n=1 (p=0): m_2 + g m_4 = m_0² = 1
     # For n=3 (p=1): m_4 + g m_6 = 2 m_0 m_2 = 2 m_2
     # For n=5 (p=2): m_6 + g m_8 = 2 m_0 m_4 + m_2² = 2m_4 + m_2²
     # ...
-    # 
+    #
     # This is a triangular system if we eliminate from the top.
     # But it's coupled: m_2 + g m_4 = 1 and m_4 + g m_6 = 2 m_2.
     # We need to iterate: guess m_2, compute m_4, m_6, ... and close.
-    
+
     # Better approach: use the resolvent. R(ζ) = Σ m_k / ζ^{k+1}.
     # The SD equation in terms of R is:
     # R(ζ) ζ - 1 = R²(ζ) + g [ζ³ R(ζ) - ζ² - ζ R(ζ)... ]
     # This gets complicated. Let's just do Newton iteration.
-    
+
     # For the quartic, the resolvent satisfies:
     # ζ = 1/R + m_1_conn + (m_2_conn) R + ...
     # Actually let's use the standard result.
-    
+
     # The eigenvalue density for V = M²/2 + g M⁴/4 has support [-a, a]:
     # ρ(x) = (1/(2π)) (1 + 2g(a² + x²)/3 )... no, let me do it properly.
     #
@@ -140,59 +141,59 @@ def quartic_moments_from_sd(g: float, max_power: int = 20) -> np.ndarray:
     #
     # Let me just compute a numerically. Normalisation: ∫ρ=1 gives
     # ∫_{-a}^{a} h(x)√(a²-x²)/π dx = 1.
-    
+
     # Actually, the clean way: for V = t M²/2 + g M⁴/4:
     # R(ζ) satisfies the cubic: g R³ + (stuff) = 0.
     # Instead, let me just solve the SD recursion numerically.
-    
+
     # ITERATIVE APPROACH: Assume m_{2k}=0 for k > K_max as initial guess,
     # then iterate SD equations backwards.
-    # Use the eigenvalue density approach: find support endpoint a, 
+    # Use the eigenvalue density approach: find support endpoint a,
     # then compute moments by integration.
     # For V'(M)=M+gM³, density has support [-a,a] with
     # ρ(x) = (1/π)(1/2 + g(x² + a²/2)) √(a²-x²)
     # Normalisation gives a.
-    
+
     def norm_err(a):
-        x = np.linspace(-a+1e-12, a-1e-12, 5000)
-        h = 0.5 + g*(x**2 + a**2/2)
+        x = np.linspace(-a + 1e-12, a - 1e-12, 5000)
+        h = 0.5 + g * (x**2 + a**2 / 2)
         rho = h * np.sqrt(a**2 - x**2) / np.pi
         return np.trapezoid(rho, x) - 1.0
-    
+
     a = brentq(norm_err, 0.1, 10.0)
-    x = np.linspace(-a+1e-12, a-1e-12, 10000)
-    h = 0.5 + g*(x**2 + a**2/2)
+    x = np.linspace(-a + 1e-12, a - 1e-12, 10000)
+    h = 0.5 + g * (x**2 + a**2 / 2)
     rho = h * np.sqrt(a**2 - x**2) / np.pi
-    
+
     K = max_power // 2 + 1
     m_even = np.zeros(K + 1)
     m_even[0] = 1.0
     for k in range(1, K + 1):
-        m_even[k] = np.trapezoid(x**(2*k) * rho, x)
-    
+        m_even[k] = np.trapezoid(x ** (2 * k) * rho, x)
+
     # Pack into full moment array
     moments = np.zeros(max_power + 1)
     for k in range(min(K + 1, max_power // 2 + 1)):
         if 2 * k <= max_power:
             moments[2 * k] = m_even[k]
-    
+
     return moments
 
 
-def quartic_eigenvalue_density(g: float, n_points: int = 500) -> Tuple[np.ndarray, np.ndarray]:
+def quartic_eigenvalue_density(g: float, n_points: int = 500) -> tuple[np.ndarray, np.ndarray]:
     """Compute eigenvalue density ρ(x) for V = M²/2 + g M⁴/4.
-    
+
     Support is [-a, a] where a satisfies:
         a²(1 + g a²) = 4   (from normalisation + SD equation)
     i.e., g a⁴ + a² - 4 = 0  →  a² = (-1 + √(1+16g))/(2g)
-    
+
     Density: ρ(x) = (1/(2π))(1 + 2g x²/... ) √(a²-x²)
     Actually: ρ(x) = (1/(2π))(V'(x) - polynomial)/(something)
-    
+
     Let me derive properly. Resolvent ansatz R(ζ) = (1/2)[V'(ζ) - M(ζ)√(ζ²-a²)]
     where M is a polynomial. For V'=ζ + gζ³:
     R(ζ) → 1/ζ as ζ→∞ ⟹ M(ζ) = gζ + C, C chosen so R→1/ζ.
-    
+
     Leading: V'(ζ)/2 ~ gζ³/2, and M(ζ)√(ζ²-a²) ~ (gζ+C)ζ ~ gζ² + Cζ.
     For R~1/ζ we need these to cancel at O(ζ³): gζ³/2 = gζ³... yes.
     At O(ζ): coefficient of ζ from V' is 1/2, from M√ is g(-a²/2)+C.
@@ -201,11 +202,11 @@ def quartic_eigenvalue_density(g: float, n_points: int = 500) -> Tuple[np.ndarra
     a²(1 + 3ga²/4)/4 = 1 → a²/4 + 3ga⁴/16 = 1.
     Hmm, let me redo. The exact condition for one-cut with Z₂ symmetry is:
     ∮ V'(ζ)/(2πi √(ζ²-a²)) dζ = 1 (around the cut)
-    = (1/2)[coeff of 1/ζ in V'(ζ)/√(ζ²-a²)] 
+    = (1/2)[coeff of 1/ζ in V'(ζ)/√(ζ²-a²)]
     For V'(ζ)=ζ+gζ³: V'(ζ)/√(ζ²-a²) = (ζ+gζ³)/ζ√(1-a²/ζ²)
     = (1+gζ²)(1 + a²/(2ζ²) + ...) = gζ² + 1 + ga²/2 + a²/(2ζ²) + ...
     Residue at ∞ gives 1/ζ coefficient = a²/2 + ga⁴... nah this is getting messy.
-    
+
     Let me just find a numerically.
     """
     # Normalisation: ∫_{-a}^{a} ρ(x) dx = 1
@@ -217,28 +218,29 @@ def quartic_eigenvalue_density(g: float, n_points: int = 500) -> Tuple[np.ndarra
     # h(x) = 1/2 + g(x² + a²/2)  [standard result]
     # Normalisation: (1/π)∫_{-a}^{a} h(x)√(a²-x²) dx = 1
     # = (1/π)[a²/4 + g(a⁴/16 · (something) + a²/2 · a²π/4)]
-    # 
+    #
     # Let me just do it numerically.
-    
+
     def normalisation_error(a):
         x = np.linspace(-a + 1e-10, a - 1e-10, 2000)
         h = 0.5 + g * (x**2 + a**2 / 2)
         rho = h * np.sqrt(a**2 - x**2) / np.pi
         return np.trapezoid(rho, x) - 1.0
-    
+
     # Find a
     a = brentq(normalisation_error, 0.1, 10.0)
-    
+
     x = np.linspace(-a, a, n_points)
     h = 0.5 + g * (x**2 + a**2 / 2)
     rho = np.maximum(h * np.sqrt(np.maximum(a**2 - x**2, 0)) / np.pi, 0)
-    
+
     return x, rho
 
 
 # ══════════════════════════════════════════════════════════
 #  General: resolvent → moments → R-transform → master field
 # ══════════════════════════════════════════════════════════
+
 
 def moments_from_density(x: np.ndarray, rho: np.ndarray, max_power: int) -> np.ndarray:
     """Compute moments m_k = ∫ x^k ρ(x) dx from a numerical density."""
@@ -250,15 +252,15 @@ def moments_from_density(x: np.ndarray, rho: np.ndarray, max_power: int) -> np.n
 
 def r_transform_from_moments(moments: np.ndarray) -> np.ndarray:
     """Compute R-transform coefficients from moments.
-    
+
     The resolvent R(ζ) = Σ_k m_k / ζ^{k+1}.
     The master field function M(z) = R^{-1}(z) = 1/z + Σ_n M_n z^n
     where M_n are the free cumulants (R-transform coefficients).
-    
+
     Free cumulants κ_n are related to moments by the moment-cumulant formula:
     m_n = Σ_{π ∈ NC(n)} Π_{B ∈ π} κ_{|B|}
     where the sum is over non-crossing partitions.
-    
+
     For the first few:
     κ_1 = m_1
     κ_2 = m_2 - m_1²
@@ -268,32 +270,49 @@ def r_transform_from_moments(moments: np.ndarray) -> np.ndarray:
     m = moments
     n_max = len(m) - 1
     kappa = np.zeros(n_max + 1)
-    
+
     if n_max >= 1:
         kappa[1] = m[1]
     if n_max >= 2:
-        kappa[2] = m[2] - m[1]**2
+        kappa[2] = m[2] - m[1] ** 2
     if n_max >= 3:
-        kappa[3] = m[3] - 3*m[2]*m[1] + 2*m[1]**3
+        kappa[3] = m[3] - 3 * m[2] * m[1] + 2 * m[1] ** 3
     if n_max >= 4:
-        kappa[4] = m[4] - 4*m[3]*m[1] - 2*m[2]**2 + 10*m[2]*m[1]**2 - 5*m[1]**4
+        kappa[4] = m[4] - 4 * m[3] * m[1] - 2 * m[2] ** 2 + 10 * m[2] * m[1] ** 2 - 5 * m[1] ** 4
     if n_max >= 5:
-        kappa[5] = (m[5] - 5*m[4]*m[1] - 5*m[3]*m[2] + 15*m[3]*m[1]**2 
-                    + 15*m[2]**2*m[1] - 35*m[2]*m[1]**3 + 14*m[1]**5)
+        kappa[5] = (
+            m[5]
+            - 5 * m[4] * m[1]
+            - 5 * m[3] * m[2]
+            + 15 * m[3] * m[1] ** 2
+            + 15 * m[2] ** 2 * m[1]
+            - 35 * m[2] * m[1] ** 3
+            + 14 * m[1] ** 5
+        )
     if n_max >= 6:
-        kappa[6] = (m[6] - 6*m[5]*m[1] - 6*m[4]*m[2] + 24*m[4]*m[1]**2
-                    - 3*m[3]**2 + 36*m[3]*m[2]*m[1] - 44*m[3]*m[1]**3
-                    + 4*m[2]**3 - 45*m[2]**2*m[1]**2 + 84*m[2]*m[1]**4 - 42*m[1]**6)
-    
+        kappa[6] = (
+            m[6]
+            - 6 * m[5] * m[1]
+            - 6 * m[4] * m[2]
+            + 24 * m[4] * m[1] ** 2
+            - 3 * m[3] ** 2
+            + 36 * m[3] * m[2] * m[1]
+            - 44 * m[3] * m[1] ** 3
+            + 4 * m[2] ** 3
+            - 45 * m[2] ** 2 * m[1] ** 2
+            + 84 * m[2] * m[1] ** 4
+            - 42 * m[1] ** 6
+        )
+
     # For higher orders, use the recursive formula via non-crossing partitions
     # (implementation would go here for production code)
-    
+
     return kappa
 
 
 def voiculescu_coefficients(free_cumulants: np.ndarray) -> np.ndarray:
     """Convert free cumulants κ_n to Voiculescu master field coefficients M_n.
-    
+
     M(z) = 1/z + R(z), where R(z) = Σ_{n≥1} κ_n z^{n-1} is the R-transform.
     The M̂ = a + Σ_{n≥0} M_n (a†)^n has M_n = κ_{n+1}.
     """
@@ -304,33 +323,33 @@ if __name__ == "__main__":
     print("=" * 60)
     print("One-matrix model validation")
     print("=" * 60)
-    
+
     # 1. Gaussian moments
     m_exact = gaussian_moments(12)
     print("\nGaussian moments (exact):")
     for k in range(0, 13, 2):
         print(f"  m_{k} = {m_exact[k]:.6f}")
-    
+
     # 2. Gaussian free cumulants
     kappa = r_transform_from_moments(m_exact)
     print(f"\nGaussian free cumulants: κ_1={kappa[1]:.4f}, κ_2={kappa[2]:.4f}, κ_3={kappa[3]:.4f}")
-    print(f"  (Expected: κ_1=0, κ_2=1, κ_k=0 for k≥3)")
-    
+    print("  (Expected: κ_1=0, κ_2=1, κ_k=0 for k≥3)")
+
     # 3. Quartic model, g=0.5
     g = 0.5
     m_quartic = quartic_moments_from_sd(g, max_power=12)
     print(f"\nQuartic model (g={g}) moments:")
     for k in range(0, 13, 2):
         print(f"  m_{k} = {m_quartic[k]:.8f}")
-    
+
     # 4. Quartic eigenvalue density
     x, rho = quartic_eigenvalue_density(g)
     m_check = moments_from_density(x, rho, 8)
-    print(f"\nQuartic moments from density (check):")
+    print("\nQuartic moments from density (check):")
     for k in range(0, 9, 2):
         print(f"  m_{k} = {m_check[k]:.8f}  (SD: {m_quartic[k]:.8f})")
-    
-    print(f"\nQuartic free cumulants:")
+
+    print("\nQuartic free cumulants:")
     kappa_q = r_transform_from_moments(m_quartic)
     for k in range(1, 7):
         print(f"  κ_{k} = {kappa_q[k]:.8f}")
