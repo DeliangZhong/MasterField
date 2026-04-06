@@ -13,18 +13,11 @@ INTERACTION="commutator_squared"
 
 cd $PBS_O_WORKDIR
 
-# Conda environment
-CONDA_ENV="master_field"
-source "$(conda info --base)/etc/profile.d/conda.sh"
+module load jax/0.4.25-gfbf-2023a
+module load SciPy-bundle/2023.07-gfbf-2023a
+module load matplotlib/3.7.2-gfbf-2023a 2>/dev/null || true
 
-if ! conda env list | grep -q "^${CONDA_ENV} "; then
-    echo "Creating conda env ${CONDA_ENV}..."
-    conda create -n ${CONDA_ENV} python=3.11 -y
-    conda activate ${CONDA_ENV}
-    pip install -r requirements.txt
-else
-    conda activate ${CONDA_ENV}
-fi
+python3 -c "import optax" 2>/dev/null || pip install --user optax
 
 export JAX_PLATFORM_NAME=cpu
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
