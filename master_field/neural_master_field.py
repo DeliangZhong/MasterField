@@ -404,21 +404,25 @@ class MasterFieldTrainer:
         self.n_moments = max_word_length + 1
 
     def init(self, key: jax.Array):
-        """Initialise optimiser and parameters."""
+        """Initialise optimiser and parameters.
+
+        For one-matrix: direct even-moment parametrisation with log-det
+        barrier on the Hankel matrix to enforce PSD (positive measure).
+        """
         if self.n == 1:
-            # Direct moment parametrisation for one-matrix
-            # Parametrise even moments (odd = 0 by symmetry)
             n_even = self.n_moments // 2 + 1
-            self.params = {
-                "m_even_raw": jnp.zeros(n_even),
-            }
+            # Hankel matrix G_{ij}=m_{2(i+j)} of size d needs moments up to m_{4(d-1)}.
+            # With n_even even moments (m_0..m_{2(n_even-1)}), max d = n_even//2 + 1.
+            self._hankel_dim = n_even // 2 + 1
+
             # Gaussian initialisation: m_{2k} = C_k
             catalan = [1.0]
             for k in range(1, n_even):
                 catalan.append(catalan[-1] * (4 * k - 2) / (k + 1))
-            self.params["m_even_raw"] = jnp.array(catalan[:n_even])
+            self.params = {
+                "m_even_raw": jnp.array(catalan[:n_even]),
+            }
         else:
-            # Cholesky parametrisation for multi-matrix
             self.cholesky_model = CholeskyMasterField(self.n, self.L, hidden_dim=256, n_layers=4)
             self.params = self.cholesky_model.init_params(key)
 
@@ -426,7 +430,7 @@ class MasterFieldTrainer:
         schedule = optax.warmup_cosine_decay_schedule(
             init_value=self.lr * 0.01,
             peak_value=self.lr,
-            warmup_steps=200,
+            warmup_steps=min(200, self.n_epochs // 5),
             decay_steps=self.n_epochs,
         )
         self.optimizer = optax.chain(
@@ -440,39 +444,25 @@ class MasterFieldTrainer:
         if self.n == 1:
             m_even = params["m_even_raw"]
             moments = jnp.zeros(self.n_moments)
-            moments = moments.at[0].set(1.0)  # m_0 = 1
+            moments = moments.at[0].set(1.0)  # m_0 = 1 hard constraint
             for k in range(1, len(m_even)):
                 if 2 * k < self.n_moments:
                     moments = moments.at[2 * k].set(m_even[k])
             return moments
         else:
-            # TODO: multi-matrix via Cholesky
             raise NotImplementedError("Multi-matrix moments extraction")
 
     def loss_fn(self, params: dict) -> jnp.ndarray:
-        """Total loss = SD residuals + normalisation + PSD penalty."""
+        """Total loss = SD residuals + normalisation."""
         moments = self.moments_from_params(params)
 
         # SD loss (relative residuals)
         l_sd = sd_loss_one_matrix(moments, self.v_prime)
 
-        # Normalisation
+        # Normalisation: m_0 = 1
         l_norm = normalisation_loss(moments)
 
-        # Soft PSD penalty on even Hankel matrix G_{ij} = m_{2(i+j)}
-        m_even = params["m_even_raw"]
-        n_even = len(m_even)
-        half_n = min(n_even // 2 + 1, 5)  # small submatrix to keep penalty tractable
-        G = jnp.zeros((half_n, half_n))
-        for i in range(half_n):
-            for j in range(half_n):
-                idx = i + j
-                if idx < n_even:
-                    G = G.at[i, j].set(m_even[idx])
-        eigs = jnp.linalg.eigvalsh(G)
-        l_psd = jnp.sum(jnp.minimum(eigs, 0.0) ** 2)
-
-        return l_sd + 100.0 * l_norm + l_psd
+        return l_sd + 100.0 * l_norm
 
     @partial(jit, static_argnums=(0,))
     def train_step(self, params, opt_state):
@@ -481,6 +471,84 @@ class MasterFieldTrainer:
         updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
         return new_params, new_opt_state, loss
+
+    def _solve_scipy(self, verbose: bool = True) -> list[float]:
+        """Solve one-matrix SD equations using scipy with PSD constraint.
+
+        For the one-matrix case, this is a small constrained optimisation:
+        - Objective: sum of squared SD residuals
+        - Constraint: even Hankel matrix G_{ij} = m_{2(i+j)} must be PSD
+        """
+        from scipy.optimize import minimize
+
+        m_even_init = np.array(self.params["m_even_raw"])
+        n_even = len(m_even_init)
+        hankel_dim = n_even // 2 + 1
+
+        def sd_residuals_np(m_even_vec):
+            """SD residuals as numpy function."""
+            moments = np.zeros(self.n_moments)
+            moments[0] = 1.0
+            for k in range(1, n_even):
+                if 2 * k < self.n_moments:
+                    moments[2 * k] = m_even_vec[k]
+
+            K = len(moments) - 1
+            n_v = len(self.v_prime)
+            total = 0.0
+            n_eqs = 0
+            for n in range(0, K - n_v):
+                lhs = sum(self.v_prime[k] * moments[n + k] for k in range(n_v) if n + k <= K)
+                rhs = sum(
+                    moments[j] * moments[n - j - 1] for j in range(n) if j <= K and n - j - 1 <= K
+                )
+                scale = max(abs(lhs) + abs(rhs), 1.0)
+                total += ((lhs - rhs) / scale) ** 2
+                n_eqs += 1
+            return total / max(n_eqs, 1)
+
+        def min_hankel_eig(m_even_vec):
+            """Minimum eigenvalue of even Hankel submatrix."""
+            G = np.zeros((hankel_dim, hankel_dim))
+            for i in range(hankel_dim):
+                for j in range(hankel_dim):
+                    idx = i + j
+                    if idx < n_even:
+                        G[i, j] = m_even_vec[idx]
+            return np.min(np.linalg.eigvalsh(G))
+
+        # m_0 = 1 is fixed; optimise m_even[1:]
+        x0 = m_even_init[1:].copy()
+
+        def objective(x):
+            m = np.concatenate([[1.0], x])
+            return sd_residuals_np(m)
+
+        def psd_constraint(x):
+            m = np.concatenate([[1.0], x])
+            return min_hankel_eig(m)
+
+        constraints = [{"type": "ineq", "fun": psd_constraint}]
+
+        if verbose:
+            print("  Solving via scipy.optimize.minimize (SLSQP)...")
+
+        result = minimize(
+            objective,
+            x0,
+            method="SLSQP",
+            constraints=constraints,
+            options={"maxiter": 5000, "ftol": 1e-15, "disp": verbose},
+        )
+
+        m_even_opt = np.concatenate([[1.0], result.x])
+        self.params = {"m_even_raw": jnp.array(m_even_opt)}
+
+        if verbose:
+            print(f"  scipy result: success={result.success}, SD loss={result.fun:.2e}")
+            print(f"  min Hankel eig = {min_hankel_eig(m_even_opt):.6f}")
+
+        return [float(result.fun)]
 
     def _run_epochs(self, n_epochs: int, verbose: bool, label: str = ""):
         """Run n_epochs of training, returning losses."""
@@ -512,7 +580,7 @@ class MasterFieldTrainer:
         return losses
 
     def train(self, key: jax.Array, verbose: bool = True):
-        """Run the full training loop with continuation for non-Gaussian models."""
+        """Run the full training loop."""
         self.init(key)
 
         if self.model_name == "gaussian" or self.g == 0:
@@ -520,7 +588,13 @@ class MasterFieldTrainer:
             losses = self._run_epochs(self.n_epochs, verbose)
             return self.params, losses
 
-        # Continuation: gradually increase coupling from 0 to target g
+        if self.n == 1:
+            # One-matrix non-Gaussian: use scipy constrained optimisation
+            # (SD equations are underdetermined; PSD constraint is essential)
+            losses = self._solve_scipy(verbose)
+            return self.params, losses
+
+        # Multi-matrix: use JAX gradient descent with continuation
         target_g = self.g
         n_stages = max(5, int(abs(target_g) * 10))
         g_values = [target_g * (i + 1) / n_stages for i in range(n_stages)]
@@ -528,7 +602,6 @@ class MasterFieldTrainer:
 
         all_losses = []
         for stage, g_val in enumerate(g_values):
-            # Update V' coefficients for this coupling
             if self.model_name == "quartic":
                 self.v_prime = [0.0, 1.0, 0.0, g_val]
             elif self.model_name == "sextic":
