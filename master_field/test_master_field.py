@@ -77,7 +77,7 @@ def test_quartic_sd_consistency():
                 omega[i] = m[k]
         res = sd.sd_residuals(omega)
         maxr = np.max(np.abs(res))
-        assert maxr < 1e-3, f"g={g}: max residual = {maxr}"
+        assert maxr < 1e-4, f"g={g}: max residual = {maxr}"
     print("✓ Quartic SD consistency")
 
 
@@ -128,11 +128,12 @@ def test_voiculescu_roundtrip():
     kappa = r_transform_from_moments(m[:9])
     v_coeffs = voiculescu_coefficients(kappa)
 
-    fock = CuntzFockSpace(1, 6)
-    M_hat = fock.build_master_field_voiculescu(v_coeffs[:6])
-    m_fock = fock.compute_moments(M_hat, 6)
+    # L must exceed max moment order to avoid truncation artifacts
+    fock = CuntzFockSpace(1, 10)
+    M_hat = fock.build_master_field_voiculescu(v_coeffs[:7])
+    m_fock = fock.compute_moments(M_hat, 8)
 
-    for k in range(0, 7, 2):
+    for k in range(0, 9, 2):
         assert abs(m_fock[k] - m[k]) < 1e-6, f"Roundtrip failed at m_{k}: {m_fock[k]} vs {m[k]}"
     print("✓ Voiculescu roundtrip")
 

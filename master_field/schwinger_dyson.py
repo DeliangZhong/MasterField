@@ -133,7 +133,7 @@ class OneMatrixSD(SchwingerDysonSystem):
         """Compute all SD equation residuals.
 
         SD equation for test word M^n:
-        Σ_k v_k m_{n+k-1} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
+        Σ_k v_k m_{n+k} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
 
         where m_k = Ω((0,)*k) = tr[M^k] and v_k are V' coefficients.
         """
@@ -145,9 +145,10 @@ class OneMatrixSD(SchwingerDysonSystem):
             return self.moment(omega, word)
 
         residuals = []
-        for n in range(1, self.L):
-            # LHS: Σ_k v_k m_{n+k-1}
-            lhs = sum(self.v[k] * m(n + k - 1) for k in range(len(self.v)) if n + k - 1 <= self.L)
+        max_v_degree = len(self.v) - 1
+        for n in range(0, self.L - max_v_degree):
+            # LHS: Σ_k v_k m_{n+k}  from tr[V'(M) M^n] = Σ_k v_k tr[M^{k+n}]
+            lhs = sum(self.v[k] * m(n + k) for k in range(len(self.v)))
 
             # RHS: Σ_{j=0}^{n-1} m_j m_{n-j-1}
             rhs = sum(m(j) * m(n - j - 1) for j in range(n))

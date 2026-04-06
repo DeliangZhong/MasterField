@@ -13,10 +13,13 @@ from collections.abc import Callable
 from functools import partial
 
 import jax
-import jax.numpy as jnp
-import numpy as np
-import optax
-from jax import jit, random
+
+jax.config.update("jax_enable_x64", True)
+
+import jax.numpy as jnp  # noqa: E402
+import numpy as np  # noqa: E402
+import optax  # noqa: E402
+from jax import jit, random  # noqa: E402
 
 # ═══════════════════════════════════════════════════════════
 # Approach 1: Cholesky-parametrised moment vector
@@ -274,7 +277,7 @@ def sd_loss_one_matrix(moments: jnp.ndarray, v_prime_coeffs: list[float]) -> jnp
     """Schwinger-Dyson loss for a one-matrix model.
 
     SD equation for test word M^n:
-    Σ_k v_k m_{n+k-1} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
+    Σ_k v_k m_{n+k} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
 
     Args:
         moments: array of m_0, m_1, ..., m_K
@@ -486,19 +489,39 @@ class MasterFieldTrainer:
         return self.params, losses
 
     def get_solution(self) -> dict:
-        """Extract the solution after training."""
+        """Extract the solution after training, including master field operator."""
         moments = np.array(self.moments_from_params(self.params))
 
-        # Compute free cumulants
-        from one_matrix import r_transform_from_moments
+        from one_matrix import r_transform_from_moments, voiculescu_coefficients
 
         kappa = r_transform_from_moments(moments)
+        v_coeffs = voiculescu_coefficients(kappa)
 
-        return {
+        result = {
             "moments": moments,
             "free_cumulants": kappa,
+            "voiculescu_coefficients": v_coeffs,
             "final_loss": float(self.loss_fn(self.params)),
         }
+
+        # Roundtrip verification via Cuntz-Fock space
+        try:
+            from cuntz_fock import CuntzFockSpace
+
+            fock_L = min(10, self.L + 4)
+            fock = CuntzFockSpace(n_matrices=1, max_length=fock_L)
+            n_coeffs = min(len(v_coeffs), fock_L)
+            M_hat = fock.build_master_field_voiculescu(v_coeffs[:n_coeffs])
+            m_fock = fock.compute_moments(M_hat, max_power=min(2 * fock_L, self.L))
+            n_compare = min(len(m_fock), len(moments))
+            result["fock_moments"] = m_fock
+            result["roundtrip_max_error"] = float(
+                np.max(np.abs(m_fock[:n_compare] - moments[:n_compare]))
+            )
+        except Exception as e:
+            result["roundtrip_error"] = str(e)
+
+        return result
 
 
 # ═══════════════════════════════════════════════════════════
@@ -545,6 +568,108 @@ class MultiMatrixTrainer:
             for combo in cp(range(n_matrices), repeat=length):
                 self.test_words.append(combo)
 
+        # Pre-compute word → (i, j) index mapping for moment matrix lookups
+        self._word_to_ij: dict[tuple, tuple[int, int]] = {}
+        for j, wj in enumerate(self.basis_words):
+            self._word_to_ij[wj] = (0, j)
+        for i, wi in enumerate(self.basis_words):
+            prefix = tuple(reversed(wi))
+            for j, wj in enumerate(self.basis_words):
+                combined = prefix + wj
+                if combined not in self._word_to_ij and len(combined) <= max_word_length:
+                    self._word_to_ij[combined] = (i, j)
+
+        # Pre-compute SD equation structure as index arrays for JIT
+        self._precompute_sd_structure()
+
+    def _lookup_ij(self, word: tuple) -> tuple[int, int] | None:
+        """Get (i, j) index for a word, or None if truncated."""
+        if not word:
+            return None  # empty word → 1.0, handled separately
+        return self._word_to_ij.get(word)
+
+    def _precompute_sd_structure(self):
+        """Pre-compute all SD equation terms as index arrays for JIT.
+
+        For each equation (test_word w, derivative direction a):
+          LHS = kinetic + interaction terms (moments looked up by index)
+          RHS = sum of products of two moments (splitting)
+        """
+        # Sentinel index for "truncated" or "empty word = 1.0"
+        EMPTY = (-1, -1)
+
+        equations = []
+        for w in self.test_words:
+            for a in range(self.n):
+                b = 1 - a if self.n == 2 else 0
+
+                # LHS kinetic: moment of (a,) + w
+                lhs_kin = self._lookup_ij((a,) + w) or EMPTY
+
+                # LHS interaction terms (commutator_squared)
+                lhs_int = []
+                if self.interaction == "commutator_squared" and self.n == 2:
+                    for ww in [(a, b, b) + w, (b, b, a) + w, (b, a, b) + w]:
+                        lhs_int.append(self._lookup_ij(ww) or EMPTY)
+                else:
+                    lhs_int = [EMPTY, EMPTY, EMPTY]
+
+                # RHS splitting: positions where w[m] == a
+                splits = []
+                for m in range(len(w)):
+                    if w[m] == a:
+                        left = w[:m]
+                        right = w[m + 1 :]
+                        left_ij = self._lookup_ij(left) or EMPTY
+                        right_ij = self._lookup_ij(right) or EMPTY
+                        splits.append((left_ij, right_ij))
+
+                equations.append(
+                    {
+                        "lhs_kin": lhs_kin,
+                        "lhs_int": lhs_int,
+                        "splits": splits,
+                    }
+                )
+
+        # Convert to JAX arrays with padding for ragged splits
+        n_eq = len(equations)
+        max_splits = max((len(eq["splits"]) for eq in equations), default=0)
+        max_splits = max(max_splits, 1)  # at least 1 to avoid empty arrays
+
+        # LHS indices
+        self._lhs_kin_i = jnp.array([eq["lhs_kin"][0] for eq in equations])
+        self._lhs_kin_j = jnp.array([eq["lhs_kin"][1] for eq in equations])
+        self._lhs_int1_i = jnp.array([eq["lhs_int"][0][0] for eq in equations])
+        self._lhs_int1_j = jnp.array([eq["lhs_int"][0][1] for eq in equations])
+        self._lhs_int2_i = jnp.array([eq["lhs_int"][1][0] for eq in equations])
+        self._lhs_int2_j = jnp.array([eq["lhs_int"][1][1] for eq in equations])
+        self._lhs_int3_i = jnp.array([eq["lhs_int"][2][0] for eq in equations])
+        self._lhs_int3_j = jnp.array([eq["lhs_int"][2][1] for eq in equations])
+
+        # RHS split indices (padded)
+        split_left_i = np.zeros((n_eq, max_splits), dtype=np.int32)
+        split_left_j = np.zeros((n_eq, max_splits), dtype=np.int32)
+        split_right_i = np.zeros((n_eq, max_splits), dtype=np.int32)
+        split_right_j = np.zeros((n_eq, max_splits), dtype=np.int32)
+        split_mask = np.zeros((n_eq, max_splits), dtype=bool)
+
+        for eq_idx, eq in enumerate(equations):
+            for s_idx, (left_ij, right_ij) in enumerate(eq["splits"]):
+                split_left_i[eq_idx, s_idx] = left_ij[0]
+                split_left_j[eq_idx, s_idx] = left_ij[1]
+                split_right_i[eq_idx, s_idx] = right_ij[0]
+                split_right_j[eq_idx, s_idx] = right_ij[1]
+                split_mask[eq_idx, s_idx] = True
+
+        self._split_left_i = jnp.array(split_left_i)
+        self._split_left_j = jnp.array(split_left_j)
+        self._split_right_i = jnp.array(split_right_i)
+        self._split_right_j = jnp.array(split_right_j)
+        self._split_mask = jnp.array(split_mask)
+        self._n_equations = n_eq
+        self._g2_half = (self.g**2) / 2
+
     def init(self, key: jax.Array):
         """Initialise Cholesky parameters."""
         n_params = self.basis_dim * (self.basis_dim + 1) // 2
@@ -560,10 +685,11 @@ class MultiMatrixTrainer:
             "diag_log": diag_log,
         }
 
+        warmup = min(500, self.n_epochs // 5)
         schedule = optax.warmup_cosine_decay_schedule(
             init_value=self.lr * 0.01,
             peak_value=self.lr,
-            warmup_steps=500,
+            warmup_steps=warmup,
             decay_steps=self.n_epochs,
         )
         self.optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(schedule))
@@ -587,44 +713,64 @@ class MultiMatrixTrainer:
         return L @ L.T
 
     def moment_from_matrix(self, Omega: jnp.ndarray, word: tuple) -> float:
-        """Look up moment tr[word] from the moment matrix.
-
-        Ω_{i,j} = tr[reverse(basis_i) · basis_j]
-        For a given word w, find i,j such that reverse(basis_i) · basis_j = w.
-        The simplest: Ω_{0,j} = tr[basis_j] (first row).
-        """
+        """Look up moment tr[word] from the moment matrix via pre-computed index."""
         if not word:
             return 1.0
+        ij = self._word_to_ij.get(word)
+        if ij is None:
+            return 0.0  # truncated
+        return Omega[ij[0], ij[1]]
 
-        # Check if word is a basis word directly
-        for j, bw in enumerate(self.basis_words):
-            if bw == word:
-                return Omega[0, j]
-
-        # Otherwise, try to decompose word = reverse(w_i) · w_j
-        for i, wi in enumerate(self.basis_words):
-            prefix = tuple(reversed(wi))
-            if len(prefix) <= len(word) and word[: len(prefix)] == prefix:
-                suffix = word[len(prefix) :]
-                for j, wj in enumerate(self.basis_words):
-                    if wj == suffix:
-                        return Omega[i, j]
-
-        return 0.0  # truncated
+    def _moment_lookup(self, Omega_ext: jnp.ndarray, i: jnp.ndarray, j: jnp.ndarray) -> jnp.ndarray:
+        """Look up moments from extended matrix. Index -1 maps to the (0,0)=1 sentinel."""
+        return Omega_ext[i, j]
 
     def loss_fn(self, params: dict) -> jnp.ndarray:
-        """Total loss = SD residuals + normalisation."""
+        """Vectorised SD loss + normalisation using pre-computed index arrays."""
         Omega = self.params_to_moment_matrix(params)
 
-        def moment_func(w):
-            return self.moment_from_matrix(Omega, w)
+        # Extend Omega with a sentinel row/column for empty-word (1.0) and truncated (0.0)
+        # Index -1 → last row/col (sentinel), set to 1.0 at [d,d] for empty word
+        d = self.basis_dim
+        Omega_ext = jnp.zeros((d + 1, d + 1))
+        Omega_ext = Omega_ext.at[:d, :d].set(Omega)
+        Omega_ext = Omega_ext.at[d, d].set(1.0)  # sentinel for empty word
 
-        loss = sd_loss_two_matrix(moment_func, self.g, self.test_words, self.interaction)
+        # Map sentinel index -1 → d (last index in extended matrix)
+        def remap(idx):
+            return jnp.where(idx == -1, d, idx)
+
+        lhs_kin = Omega_ext[remap(self._lhs_kin_i), remap(self._lhs_kin_j)]
+
+        if self.interaction == "commutator_squared" and self.n == 2:
+            int1 = Omega_ext[remap(self._lhs_int1_i), remap(self._lhs_int1_j)]
+            int2 = Omega_ext[remap(self._lhs_int2_i), remap(self._lhs_int2_j)]
+            int3 = Omega_ext[remap(self._lhs_int3_i), remap(self._lhs_int3_j)]
+            lhs = lhs_kin + self._g2_half * (int1 + int2 - 2 * int3)
+        else:
+            lhs = lhs_kin
+
+        # RHS: splitting terms
+        split_left = Omega_ext[remap(self._split_left_i), remap(self._split_left_j)]
+        split_right = Omega_ext[remap(self._split_right_i), remap(self._split_right_j)]
+        rhs = jnp.sum(split_left * split_right * self._split_mask, axis=1)
+
+        # SD residual loss
+        residuals = lhs - rhs
+        loss = jnp.mean(residuals**2)
 
         # Normalisation: Ω_{0,0} = tr[I] = 1
         loss += 100.0 * (Omega[0, 0] - 1.0) ** 2
 
         return loss
+
+    @partial(jit, static_argnums=(0,))
+    def train_step(self, params: dict, opt_state):
+        """Single JIT-compiled training step."""
+        loss, grads = jax.value_and_grad(self.loss_fn)(params)
+        updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+        return new_params, new_opt_state, loss
 
     def train(self, key: jax.Array, verbose: bool = True):
         """Run the training loop."""
@@ -632,9 +778,7 @@ class MultiMatrixTrainer:
         losses = []
 
         for epoch in range(self.n_epochs):
-            loss, grads = jax.value_and_grad(self.loss_fn)(self.params)
-            updates, self.opt_state = self.optimizer.update(grads, self.opt_state, self.params)
-            self.params = optax.apply_updates(self.params, updates)
+            self.params, self.opt_state, loss = self.train_step(self.params, self.opt_state)
             losses.append(float(loss))
 
             if verbose and (epoch % 1000 == 0 or epoch == self.n_epochs - 1):

@@ -15,8 +15,12 @@ import argparse
 import os
 import time
 
-import numpy as np
-from jax import random
+import jax
+
+jax.config.update("jax_enable_x64", True)
+
+import numpy as np  # noqa: E402
+from jax import random  # noqa: E402
 
 
 def main():
@@ -89,6 +93,10 @@ def main():
     # ──────────────────────────────────────────────────────────
     # Stage 2: Run ML optimisation
     # ──────────────────────────────────────────────────────────
+    sol = None
+    m_exact = None
+    losses = []
+
     if args.model in ["gaussian", "quartic", "sextic"]:
         print(f"\n[2] One-matrix ML optimisation ({args.model})...")
         from neural_master_field import MasterFieldTrainer
@@ -228,19 +236,13 @@ def main():
     try:
         from visualize import plot_convergence, plot_eigenvalue_density, plot_moments
 
-        if args.model in ["gaussian", "quartic", "sextic"]:
-            plot_convergence(losses, args.output_dir, f"{args.model}_g{args.coupling}")
-            plot_moments(
-                sol["moments"],
-                m_exact if "m_exact" in dir() else None,
-                args.output_dir,
-                f"{args.model}_g{args.coupling}",
-            )
+        tag = f"{args.model}_g{args.coupling}"
+        plot_convergence(losses, args.output_dir, tag)
 
+        if args.model in ["gaussian", "quartic", "sextic"] and sol is not None:
+            plot_moments(sol["moments"], m_exact, args.output_dir, tag)
             if args.model in ["gaussian", "quartic"]:
-                plot_eigenvalue_density(
-                    sol["moments"], args.output_dir, f"{args.model}_g{args.coupling}"
-                )
+                plot_eigenvalue_density(sol["moments"], args.output_dir, tag)
     except ImportError:
         print("  (matplotlib not available, skipping plots)")
     except Exception as e:

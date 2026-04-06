@@ -150,20 +150,21 @@ def quartic_moments_from_sd(g: float, max_power: int = 20) -> np.ndarray:
     # then iterate SD equations backwards.
     # Use the eigenvalue density approach: find support endpoint a,
     # then compute moments by integration.
-    # For V'(M)=M+gM³, density has support [-a,a] with
-    # ρ(x) = (1/π)(1/2 + g(x² + a²/2)) √(a²-x²)
-    # Normalisation gives a.
+    # For V'(M)=M+gM³, the resolvent R(z) = (V'(z) - P(z)√(z²-a²))/2
+    # with P(z) = gz² + 1 + ga²/2 determined by R(z)→1/z at ∞.
+    # Density: ρ(x) = P(x)√(a²-x²)/(2π) = (gx² + 1 + ga²/2)√(a²-x²)/(2π)
+    # Normalisation: a²(1 + ga²/2)/4 = 1
 
     def norm_err(a):
         x = np.linspace(-a + 1e-12, a - 1e-12, 5000)
-        h = 0.5 + g * (x**2 + a**2 / 2)
-        rho = h * np.sqrt(a**2 - x**2) / np.pi
+        P = g * x**2 + 1 + g * a**2 / 2
+        rho = P * np.sqrt(a**2 - x**2) / (2 * np.pi)
         return np.trapezoid(rho, x) - 1.0
 
     a = brentq(norm_err, 0.1, 10.0)
     x = np.linspace(-a + 1e-12, a - 1e-12, 10000)
-    h = 0.5 + g * (x**2 + a**2 / 2)
-    rho = h * np.sqrt(a**2 - x**2) / np.pi
+    P = g * x**2 + 1 + g * a**2 / 2
+    rho = P * np.sqrt(a**2 - x**2) / (2 * np.pi)
 
     K = max_power // 2 + 1
     m_even = np.zeros(K + 1)
@@ -214,25 +215,21 @@ def quartic_eigenvalue_density(g: float, n_points: int = 500) -> tuple[np.ndarra
     # For the one-cut symmetric case, ρ(x) = h(x)√(a²-x²)/π
     # where h(x) = (1/2π)∮ V'(ζ)/(2(ζ-x)√(ζ²-a²)) dζ
     # = (1 + g(2x² + a²))/2  ... from polynomial division.
-    # Actually for V'(M) = M + gM³:
-    # h(x) = 1/2 + g(x² + a²/2)  [standard result]
-    # Normalisation: (1/π)∫_{-a}^{a} h(x)√(a²-x²) dx = 1
-    # = (1/π)[a²/4 + g(a⁴/16 · (something) + a²/2 · a²π/4)]
-    #
-    # Let me just do it numerically.
+    # For V'(M) = M + gM³, the resolvent gives:
+    # P(x) = gx² + 1 + ga²/2
+    # ρ(x) = P(x)√(a²-x²)/(2π)
 
     def normalisation_error(a):
         x = np.linspace(-a + 1e-10, a - 1e-10, 2000)
-        h = 0.5 + g * (x**2 + a**2 / 2)
-        rho = h * np.sqrt(a**2 - x**2) / np.pi
+        P = g * x**2 + 1 + g * a**2 / 2
+        rho = P * np.sqrt(a**2 - x**2) / (2 * np.pi)
         return np.trapezoid(rho, x) - 1.0
 
-    # Find a
     a = brentq(normalisation_error, 0.1, 10.0)
 
     x = np.linspace(-a, a, n_points)
-    h = 0.5 + g * (x**2 + a**2 / 2)
-    rho = np.maximum(h * np.sqrt(np.maximum(a**2 - x**2, 0)) / np.pi, 0)
+    P = g * x**2 + 1 + g * a**2 / 2
+    rho = np.maximum(P * np.sqrt(np.maximum(a**2 - x**2, 0)) / (2 * np.pi), 0)
 
     return x, rho
 
@@ -261,51 +258,28 @@ def r_transform_from_moments(moments: np.ndarray) -> np.ndarray:
     m_n = Σ_{π ∈ NC(n)} Π_{B ∈ π} κ_{|B|}
     where the sum is over non-crossing partitions.
 
-    For the first few:
-    κ_1 = m_1
-    κ_2 = m_2 - m_1²
-    κ_3 = m_3 - 3 m_2 m_1 + 2 m_1³
-    κ_4 = m_4 - 4 m_3 m_1 - 2 m_2² + 10 m_2 m_1² - 5 m_1⁴
+    Uses the functional equation z·G(z) = 1 + Σ_k κ_k G(z)^k to derive:
+    κ_n = m_n - Σ_{k=1}^{n-1} κ_k · C(n, k)
+    where C(n, k) = coeff of z^{-n} in G(z)^k
+                  = Σ_{j₁+...+j_k = n-k} m_{j₁}·...·m_{j_k}
     """
     m = moments
     n_max = len(m) - 1
     kappa = np.zeros(n_max + 1)
 
-    if n_max >= 1:
-        kappa[1] = m[1]
-    if n_max >= 2:
-        kappa[2] = m[2] - m[1] ** 2
-    if n_max >= 3:
-        kappa[3] = m[3] - 3 * m[2] * m[1] + 2 * m[1] ** 3
-    if n_max >= 4:
-        kappa[4] = m[4] - 4 * m[3] * m[1] - 2 * m[2] ** 2 + 10 * m[2] * m[1] ** 2 - 5 * m[1] ** 4
-    if n_max >= 5:
-        kappa[5] = (
-            m[5]
-            - 5 * m[4] * m[1]
-            - 5 * m[3] * m[2]
-            + 15 * m[3] * m[1] ** 2
-            + 15 * m[2] ** 2 * m[1]
-            - 35 * m[2] * m[1] ** 3
-            + 14 * m[1] ** 5
-        )
-    if n_max >= 6:
-        kappa[6] = (
-            m[6]
-            - 6 * m[5] * m[1]
-            - 6 * m[4] * m[2]
-            + 24 * m[4] * m[1] ** 2
-            - 3 * m[3] ** 2
-            + 36 * m[3] * m[2] * m[1]
-            - 44 * m[3] * m[1] ** 3
-            + 4 * m[2] ** 3
-            - 45 * m[2] ** 2 * m[1] ** 2
-            + 84 * m[2] * m[1] ** 4
-            - 42 * m[1] ** 6
-        )
+    # C[n][k] = coeff of z^{-n} in G^k = Σ_{j₁+...+j_k = n-k} m_{j₁}...m_{j_k}
+    # Recursion: C[n][k] = Σ_{j=0}^{n-k} m[j] · C[n-1-j][k-1]
+    # Base: C[0][0] = 1, C[n][0] = 0 for n>0
+    C = np.zeros((n_max + 1, n_max + 1))
+    C[0, 0] = 1.0
 
-    # For higher orders, use the recursive formula via non-crossing partitions
-    # (implementation would go here for production code)
+    for n in range(1, n_max + 1):
+        for k in range(1, n + 1):
+            for j in range(n - k + 1):
+                C[n, k] += m[j] * C[n - 1 - j, k - 1]
+
+        # κ_n = m_n - Σ_{k=1}^{n-1} κ_k · C[n][k]
+        kappa[n] = m[n] - sum(kappa[k] * C[n, k] for k in range(1, n))
 
     return kappa
 

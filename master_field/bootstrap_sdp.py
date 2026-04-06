@@ -55,31 +55,10 @@ def bootstrap_one_matrix(
         for k in range(1, K + 1, 2):
             constraints.append(m[k] == 0.0)
 
-    # Schwinger-Dyson equations
-    for n in range(1, K - n_v + 2):
-        lhs = 0
-        for k in range(n_v):
-            idx = n + k - 1
-            if 0 <= idx <= K:
-                lhs += v_prime_coeffs[k] * m[idx]
-
-        rhs = 0
-        for j in range(n):
-            if 0 <= j <= K and 0 <= n - j - 1 <= K:
-                rhs += m[j] * m[n - j - 1]
-
-        # For SDP, we need linear constraints. The RHS has bilinear terms.
-        # The bootstrap linearises by introducing the moment matrix.
-        # For simplicity, let's linearise around the factorised terms:
-        # m_j * m_{n-j-1} is bilinear → need moment matrix.
-
-        # Actually, the standard approach: define matrix X_{ij} = m_{i+j}
-        # and impose X ≽ 0. The SD equations are linear in m.
-        # The products m_j m_{n-j-1} come from the SPLITTING, which is
-        # already captured by the moment matrix structure.
-
     # Moment matrix (Hankel matrix): H_{ij} = m_{i+j}
-    half_K = K // 2
+    # Size chosen so all SD splitting indices fit within H
+    half_K = K - max(n_v, 1)
+    half_K = max(half_K, K // 2)  # at least K//2
     H = cp.Variable((half_K + 1, half_K + 1), symmetric=True, name="Hankel")
 
     # Link H to moments
@@ -91,28 +70,23 @@ def bootstrap_one_matrix(
     # PSD constraint
     constraints.append(H >> 0)
 
-    # SD equations (linearised: use only the parts that are linear in m)
-    # For the Gaussian: m_{n+1} = Σ_{j=0}^{n-1} m_j m_{n-j-1}
-    # This is NOT linear — it involves products of moments.
-    # The SDP relaxation: replace m_j m_k → H_{j,k} which is ≥ m_j m_k by PSD.
-    # Then: m_{n+1} ≤ Σ H_{j, n-j-1}  (and similarly for lower bound).
-
-    for n in range(1, min(K - n_v + 2, K)):
+    # Linearised SD equations: replace bilinear m_j * m_k with H[j, k]
+    # SD equation: Σ_k v_k m_{n+k} = Σ_{j=0}^{n-1} H[j, n-j-1]
+    for n in range(0, min(K - n_v + 1, K)):
+        # LHS: Σ_k v_k m_{n+k}  from tr[V'(M) M^n] = Σ_k v_k tr[M^{k+n}]
         lhs = 0
         for k in range(n_v):
-            idx = n + k - 1
+            idx = n + k
             if 0 <= idx <= K:
                 lhs += v_prime_coeffs[k] * m[idx]
 
-        # RHS with moment matrix entries
+        # RHS: Σ_{j=0}^{n-1} H[j, n-j-1] (linearised splitting)
         rhs = 0
         for j in range(n):
             j_idx = j
             k_idx = n - j - 1
             if 0 <= j_idx <= half_K and 0 <= k_idx <= half_K:
                 rhs += H[j_idx, k_idx]
-            elif 0 <= j_idx <= K and 0 <= k_idx <= K:
-                rhs += m[j_idx] * m[k_idx]  # fallback (makes it non-SDP)
 
         constraints.append(lhs == rhs)
 
