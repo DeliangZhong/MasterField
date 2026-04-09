@@ -865,13 +865,25 @@ class MultiMatrixTrainer:
 
     def init(self, key: jax.Array):
         """Initialise Cholesky parameters."""
-        n_params = self.basis_dim * (self.basis_dim + 1) // 2
+        d = self.basis_dim
+
+        # Pre-compute lower-triangular index arrays (once, for vectorized Cholesky)
+        tril_rows = []
+        tril_cols = []
+        for i in range(d):
+            for j in range(i):
+                tril_rows.append(i)
+                tril_cols.append(j)
+        self._tril_rows = jnp.array(tril_rows, dtype=jnp.int32)
+        self._tril_cols = jnp.array(tril_cols, dtype=jnp.int32)
+        self._diag_idx = jnp.arange(d, dtype=jnp.int32)
+        n_offdiag = len(tril_rows)
 
         # Off-diagonal entries
         key1, key2 = random.split(key)
-        offdiag = 0.01 * random.normal(key1, (n_params - self.basis_dim,))
+        offdiag = 0.01 * random.normal(key1, (n_offdiag,))
         # Diagonal entries (log-scale for positivity)
-        diag_log = jnp.zeros(self.basis_dim)
+        diag_log = jnp.zeros(d)
 
         self.params = {
             "offdiag": offdiag,
@@ -889,20 +901,16 @@ class MultiMatrixTrainer:
         self.opt_state = self.optimizer.init(self.params)
 
     def params_to_moment_matrix(self, params: dict) -> jnp.ndarray:
-        """Build PSD moment matrix Ω = L L^T from Cholesky parameters."""
+        """Build PSD moment matrix Ω = L L^T from Cholesky parameters.
+
+        Uses pre-computed index arrays for vectorized construction —
+        2 array ops instead of d*(d+1)/2 individual .at[].set() calls.
+        This reduces JIT compilation memory from O(d^4) to O(d^2).
+        """
         d = self.basis_dim
         L = jnp.zeros((d, d))
-
-        offdiag = params["offdiag"]
-        diag = jnp.exp(params["diag_log"])
-
-        off_idx = 0
-        for i in range(d):
-            for j in range(i):
-                L = L.at[i, j].set(offdiag[off_idx])
-                off_idx += 1
-            L = L.at[i, i].set(diag[i])
-
+        L = L.at[self._tril_rows, self._tril_cols].set(params["offdiag"])
+        L = L.at[self._diag_idx, self._diag_idx].set(jnp.exp(params["diag_log"]))
         return L @ L.T
 
     def moment_from_matrix(self, Omega: jnp.ndarray, word: tuple) -> float:
