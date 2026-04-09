@@ -10,6 +10,71 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-10: Gross-Witten Model — Unitary Loop Equations (Apr 9, 2026)
+
+### The problem
+
+The Gross-Witten-Wadia (GWW) model is the simplest lattice gauge theory — a single-plaquette unitary matrix model:
+
+Z = ∫ dU exp(N/(2t) Tr(U + U†))
+
+with 3rd-order phase transition at t_c = 1. Exact solution known (Gross-Witten 1980, Wadia 1980). Stepping stone to QCD₂ → QCD₃ → QCD₄.
+
+### Why U = exp(iM) does NOT simplify to Hermitian
+
+Initial idea: write U = exp(iM), M Hermitian, giving V(M) = -(1/t)cos(M). Then V'(M) = (1/t)sin(M) and we reuse the Hermitian MasterFieldTrainer.
+
+**This fails.** The path integral measures differ:
+- Hermitian: Π(θ_j - θ_k)² (Vandermonde polynomial)
+- Unitary (Haar): Π|2 sin((θ_j - θ_k)/2)|² (Vandermonde on circle)
+
+The different Vandermonde gives **different saddle-point equations** and **different SD/loop equations**. Empirically verified: Hermitian SD equations give large residuals (O(1)) when evaluated on exact GWW moments. Tested 4 candidate unitary SD equations — all fail for the weak-coupling (gapped) phase at n ≥ 2.
+
+### Exact solution (verified numerically)
+
+**Strong coupling (t > 1, ungapped):**
+ρ(θ) = (1/2π)(1 + (1/t)cos θ) on [-π, π]
+w₁ = 1/(2t), wₙ = 0 for n ≥ 2.
+
+**Weak coupling (t < 1, gapped):**
+ρ(θ) = (1/(πt)) cos(θ/2) √(t - sin²(θ/2)) on [-θ_c, θ_c], sin²(θ_c/2) = t.
+w₁ = 1 - t/2, w₂ = (1-t)².
+
+### Saddle-point equation on the circle
+
+The correct constraint is:
+P.V. ∫ ρ(φ) cot((θ-φ)/2) dφ = (1/t) sin θ
+
+Via Hilbert transform on the circle (ungapped phase):
+2 Σ_{n≥1} wₙ sin(nθ) = (1/t) sin θ → w₁ = 1/(2t), wₙ = 0 for n ≥ 2.
+
+For the gapped phase, the Hilbert transform doesn't directly give a simple Fourier relation because the density has compact support.
+
+### Open question: the correct moment recursion
+
+The standard Hermitian SD equation Σ_k v_k m_{n+k} = splitting does **not** apply. The unitary loop equation involves:
+1. Resolvent on the unit circle (outer R⁺ for |z| > 1, inner R⁻ for |z| < 1)
+2. The spectral curve relating R⁺ and R⁻
+3. Moment recursion derived from the spectral curve
+
+### Implementation paths
+
+**Path A — Saddle-point as loss:** Parameterize ρ(θ) directly (Fourier coefficients or support endpoint + polynomial). Loss = saddle-point equation residual. Constraint: ∫ρ = 1, ρ ≥ 0. The PV integral is numerically tricky.
+
+**Path B — Toeplitz moment matrix + resolvent:** Parameterize Wilson loops wₙ. Enforce Toeplitz PSD (T_{ij} = w_{|i-j|} ≽ 0) and the resolvent equation. Requires deriving the correct moment recursion.
+
+**Path C — Direct density optimization:** Parameterize the support endpoint a = sin(θ_c/2) and use the known density form ρ ∝ cos(θ/2)√(a² - sin²(θ/2)). The only free parameter is a (determined by the coupling). This reduces to 1D optimization.
+
+### Toward QCD₂
+
+Once GWW is solved (1 unitary matrix), extending to QCD₂ on a small lattice = multiple coupled unitaries with plaquette interactions. The same Toeplitz moment matrix framework applies, just with more matrices and lattice Makeenko-Migdal equations as the loop constraints.
+
+### Reference
+
+See `reference/gross_witten_model.md` for detailed formulas and bibliography.
+
+---
+
 ## Implementation-9: Two-Matrix Scaling Study with Symmetry (Apr 6, 2026)
 
 ### Symmetry constraints added
