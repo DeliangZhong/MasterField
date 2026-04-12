@@ -531,6 +531,93 @@ def test_cyclicity_differentiable():
 
 
 # -------------------------------------------------------------------------
+# v2 Task 6: Lattice symmetry
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.lattice_symmetry import (  # noqa: E402
+    b_d_generators,
+    lattice_symmetry_loss,
+)
+
+
+@pytest.mark.unit
+def test_b_d_generators_counts():
+    """D generators: D sign flips + (D-1) adjacent swaps = 2D - 1."""
+    for D in [1, 2, 3, 4]:
+        gens = b_d_generators(D)
+        assert len(gens) == 2 * D - 1
+
+
+@pytest.mark.unit
+def test_b_d_generator_flip_applies():
+    """Axis-1 flip on (1, 2, -1, -2) gives (-1, 2, 1, -2)."""
+    gens = b_d_generators(2)
+    flip_1 = gens[0]  # first flip (axis 1)
+    out = flip_1((1, 2, -1, -2))
+    assert out == (-1, 2, 1, -2)
+
+
+@pytest.mark.unit
+def test_b_d_generator_swap_applies():
+    """D=2 adjacent swap on (1, 2, -1, -2) gives (2, 1, -2, -1)."""
+    gens = b_d_generators(2)
+    swap = gens[2]  # after 2 flips comes the swap
+    out = swap((1, 2, -1, -2))
+    assert out == (2, 1, -2, -1)
+
+
+@pytest.mark.unit
+def test_lattice_symmetry_loss_identity_zero():
+    """Û = I → W[anything] = 1 → loss = 0."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    test_loops = [(1, 2, -1, -2), (1, 1, 2, -1, -1, -2)]
+    gens = b_d_generators(2)
+    loss = lattice_symmetry_loss([I, I], test_loops, gens, f, D=2)
+    assert float(loss) < 1e-20
+
+
+@pytest.mark.integration
+def test_lattice_symmetry_loss_random_nonzero():
+    """Generic h → W[plaquette] != W[swap(plaquette)], loss > 0."""
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    params = _init_v2(n_matrices=2, fock=f, seed=9, scale=0.3)
+    U_list = _build_v2(params, fock=f)
+    gens = b_d_generators(2)
+    loss = lattice_symmetry_loss(
+        U_list, [(1, 2, -1, -2), (1, 1, 2, -1, -1, -2)], gens, f, D=2
+    )
+    assert float(loss) > 1e-6
+
+
+@pytest.mark.integration
+def test_lattice_symmetry_differentiable():
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    gens = b_d_generators(2)
+    test_loops = [(1, 2, -1, -2)]
+
+    def scalar(ps):
+        U_list = _build_v2(ps, fock=f)
+        return lattice_symmetry_loss(U_list, test_loops, gens, f, D=2)
+
+    params = _init_v2(n_matrices=2, fock=f, seed=11, scale=0.1)
+    val, grads = jax.value_and_grad(scalar)(params)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
