@@ -122,3 +122,122 @@ def test_adag_truncation_boundary():
     result = f.adag[0] @ e
     err = float(jnp.max(jnp.abs(result)))
     assert err < 1e-12, f"Expected 0, got max entry {err}"
+
+
+# -------------------------------------------------------------------------
+# Task 3: Polynomial master operator
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.master_operator import (  # noqa: E402
+    assemble_master_operator,
+    direction_to_label,
+    init_master_operator_params,
+)
+
+
+@pytest.mark.unit
+def test_direction_to_label_roundtrip():
+    """+1 -> 0, -1 -> 1, +2 -> 2, -2 -> 3 for D = 2."""
+    assert direction_to_label(1, D=2) == 0
+    assert direction_to_label(-1, D=2) == 1
+    assert direction_to_label(2, D=2) == 2
+    assert direction_to_label(-2, D=2) == 3
+
+
+@pytest.mark.unit
+def test_direction_to_label_rejects_zero():
+    with pytest.raises(ValueError):
+        direction_to_label(0, D=2)
+
+
+@pytest.mark.unit
+def test_direction_to_label_rejects_out_of_range():
+    with pytest.raises(ValueError):
+        direction_to_label(3, D=2)
+
+
+@pytest.mark.unit
+def test_init_master_operator_params_shape():
+    """Param count = 2*d_L - 1 complex per matrix."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
+    assert len(params) == 2
+    expected_n = 2 * f.dim - 1
+    for p in params:
+        assert p.shape == (expected_n,)
+        assert p.dtype == jnp.complex128
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_zero_gives_zero():
+    """c = 0 → Û = 0 matrix."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128)
+    U = assemble_master_operator(c, fock=f)
+    assert float(jnp.max(jnp.abs(U))) < 1e-15
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_identity_coefficient():
+    """c[0] = 1, others = 0 (empty-word creation = identity) → Û = I."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
+    U = assemble_master_operator(c, fock=f)
+    err = float(jnp.max(jnp.abs(U - jnp.eye(f.dim, dtype=jnp.complex128))))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_single_creation():
+    """c[1] = 1 → Û = â†_0 (basis[1] = (0,) in canonical enumeration)."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    assert f.basis[1] == (0,), "Test assumes basis[1] = (0,)"
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[1].set(1.0)
+    U = assemble_master_operator(c, fock=f)
+    err = float(jnp.max(jnp.abs(U - f.adag[0])))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_single_annihilation():
+    """c[d] = 1 → Û = â_0 (first annihilation coefficient)."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    assert f.basis[1] == (0,), "Test assumes basis[1] = (0,)"
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[f.dim].set(1.0)
+    U = assemble_master_operator(c, fock=f)
+    err = float(jnp.max(jnp.abs(U - f.a[0])))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_two_creation_words():
+    """Linear combination: c[1] = 2, c[2] = 3 → Û = 2 â†_0 + 3 â†_1."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    assert f.basis[1] == (0,) and f.basis[2] == (1,)
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[1].set(2.0).at[2].set(3.0)
+    U = assemble_master_operator(c, fock=f)
+    expected = 2.0 * f.adag[0] + 3.0 * f.adag[1]
+    err = float(jnp.max(jnp.abs(U - expected)))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_length2_creation():
+    """c for the word (0, 1) → Û = â†_0 @ â†_1 (applied to |Ω⟩ gives |0, 1⟩)."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    idx = f.basis_to_idx[(0, 1)]
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[idx].set(1.0)
+    U = assemble_master_operator(c, fock=f)
+    # Apply to vacuum, should give basis vector |0, 1⟩
+    v_out = U @ f.vacuum_state()
+    target = np.zeros(f.dim, dtype=np.complex128)
+    target[f.basis_to_idx[(0, 1)]] = 1.0
+    err = float(jnp.max(jnp.abs(v_out - jnp.asarray(target))))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_master_operator_rejects_wrong_shape():
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    with pytest.raises(ValueError):
+        assemble_master_operator(jnp.zeros(10, dtype=jnp.complex128), fock=f)
