@@ -61,16 +61,65 @@ def test_clock_matrix_periodic(N: int):
 
 
 @pytest.mark.unit
-def test_clock_matrix_eigenvalues():
-    N = 7
+@pytest.mark.parametrize("N,L", [(9, 3), (25, 5), (49, 7)])
+def test_clock_matrix_eigenvalues_are_L_roots_L_degenerate(N: int, L: int):
+    """Γ = P_L ⊗ I_L has eigenvalues = L-th roots of unity, each with
+    multiplicity L. Total N = L² eigenvalues."""
     Gamma = build_clock_matrix(N)
     eigs = jnp.linalg.eigvals(Gamma)
-    phases = sorted([float(jnp.angle(e)) for e in eigs])
+    phases_sorted = sorted([float(jnp.angle(e)) for e in eigs])
+
+    # Expected: L distinct L-th roots, each repeated L times.
     expected = sorted([
-        float(jnp.angle(jnp.exp(2j * jnp.pi * k / N))) for k in range(N)
+        float(jnp.angle(jnp.exp(2j * jnp.pi * k / L)))
+        for k in range(L)
+        for _ in range(L)
     ])
-    for a, b in zip(phases, expected):
-        assert abs(a - b) < 1e-12
+    assert len(phases_sorted) == N
+    assert len(expected) == N
+    for a, b in zip(phases_sorted, expected):
+        assert abs(a - b) < 1e-10, f"phase mismatch: {a} vs {b}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("N,L", [(9, 3), (25, 5), (49, 7), (121, 11)])
+def test_clock_matrix_L_periodic(N: int, L: int):
+    """Γ^L = I (stronger than Γ^N = I: the TEK tensor-product form has
+    period L, not N)."""
+    Gamma = build_clock_matrix(N)
+    Gamma_L = jnp.linalg.matrix_power(Gamma, L)
+    eye = jnp.eye(N, dtype=jnp.complex128)
+    err = float(jnp.linalg.norm(Gamma_L - eye))
+    assert err < 1e-10, f"Γ^L ≠ I at N={N} L={L}: err={err:.3e}"
+
+
+@pytest.mark.unit
+def test_clock_matrix_rejects_non_perfect_square():
+    with pytest.raises(ValueError, match="perfect square"):
+        build_clock_matrix(7)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("N,L", [(9, 3), (25, 5), (49, 7)])
+def test_clock_matrix_traceless(N: int, L: int):
+    """For L > 1, Tr(Γ) = L · Tr(P_L) = L · 0 = 0."""
+    Gamma = build_clock_matrix(N)
+    assert abs(complex(jnp.trace(Gamma))) < 1e-12
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("N,L", [(9, 3), (25, 5), (49, 7)])
+def test_clock_matrix_matches_tek_classical_saddle_U1(N: int, L: int):
+    """The TEK classical saddle uses U_1 = P_L ⊗ I_L. Our build_clock_matrix
+    should return exactly this matrix (so that Ω Γ Ω† can reach U_2 of the
+    saddle via a unitary rotation)."""
+    Gamma = build_clock_matrix(N)
+    jk = jnp.arange(L)
+    P_L = jnp.diag(jnp.exp(2j * jnp.pi * jk / L)).astype(jnp.complex128)
+    I_L = jnp.eye(L, dtype=jnp.complex128)
+    expected = jnp.kron(P_L, I_L)
+    err = float(jnp.linalg.norm(Gamma - expected))
+    assert err < 1e-14, f"Γ does not match P_L ⊗ I_L: err={err:.3e}"
 
 
 # ═══════════════════════════════════════════════════════════════

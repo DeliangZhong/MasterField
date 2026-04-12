@@ -118,36 +118,40 @@ this saddle Tr(U_1^R U_2^T U_1^{-R} U_2^{-T})/N = z_12^{-R·T}, and our formula
 gives W[R×T] = Re[z_12^{R·T} · z_12^{-R·T}] = 1 for every R, T — verified
 numerically for L ∈ {3, 5, 7} and R, T ≤ 4 (test_tek.py::test_rectangular_at_classical_saddle_equals_one).
 
-## Ansatz Caveat (R5, NEW)
+## Ansatz Caveat (R5, RESOLVED)
 
 The TEK classical saddle constructed via twist eaters has **eigenvalues equal
 to the L-th roots of unity, each with multiplicity L** (because Γ_μ = P_L ⊗ I_L
 has only L distinct eigenvalues, each L-fold degenerate).
 
-Our master-field ansatz uses Γ = diag(1, ω_N, ω_N², …, ω_N^{N−1}) with ω_N =
-exp(2πi/N) — i.e., **eigenvalues equal to the N-th roots of unity, all
-distinct**. For N = L² > L, these are different spectra, and no unitary
-conjugation Ω Γ Ω† can take one to the other (spectra are conjugation
-invariants).
+An earlier version of `build_clock_matrix(N)` returned Γ = diag(1, ω_N, …,
+ω_N^{N−1}) with ω_N = exp(2πi/N) — i.e., **eigenvalues equal to the N-th
+roots of unity, all distinct**. For N = L² > L, these are different spectra,
+and since spectra are invariants under unitary conjugation, no Ω Γ Ω† can take
+one to the other. That ansatz could not reach the TEK classical saddle at
+finite N.
 
-**Implication.** The orientation-only ansatz Ω Γ Ω† cannot reach the TEK
-classical saddle at finite N. What it reaches instead is the optimum of the
-action over a specific submanifold of U(N)^{D−1} that is NOT the TEK
-saddle orbit.
+**Fix applied.** `build_clock_matrix(N)` now returns **Γ = P_L ⊗ I_L** (with
+L = √N required to be a positive integer). Properties:
 
-In the continuum limit N → ∞, the L-th roots (L-fold degenerate) and the N-th
-roots (non-degenerate) both become uniform on the unit circle, so the
-distinction disappears. At finite N the ansatz is at best an approximation to
-the true TEK saddle.
+- Eigenvalues: L-th roots of unity, each with multiplicity L.
+- Γ^L = I (stronger than Γ^N = I).
+- Tr(Γ) = 0 for L > 1 (center-symmetric).
+- Γ matches the TEK twist-eater structure (arXiv:1708.00841 §2.2 eq. 2.16).
+- The coadjoint orbit {Ω Γ Ω†} includes the TEK saddle targets Q_L ⊗ P_L etc.,
+  so the orientation-only parametrization U_μ = Ω_μ Γ Ω_μ† can reach the
+  classical saddle via a unitary rotation.
 
-**Fix (deferred).** Replace Γ with `kron(clock_L, I_L)` (eigenvalues = L-th
-roots, L-fold degenerate). This preserves the Haar-measure argument (the
-coadjoint orbit is still constant-measure) and actually matches the TEK saddle
-structure. The orbit dimension becomes N² − L³ < N², reducing the free
-parameters and encoding the center-symmetric TEK structure explicitly.
+The Haar-measure argument survives the change: the coadjoint orbit of Γ still
+has a constant invariant measure (it is an adjoint orbit with fixed spectrum).
+The orbit dimension drops from N² − N (old, stabilizer = U(1)^N) to N² − L·L²
+= N² − N^{3/2} (new, stabilizer = U(L)^L). The missing parameters encode the
+exact TEK structure.
 
-Phase B will reveal whether this matters empirically; if yes, we swap
-`build_clock_matrix(N)` for an L-aware version before Phase C.
+**Verified empirically** (test_tek.py::test_clock_matrix_*): Γ matches
+`kron(clock_L, I_L)` to 1e-14; Γ^L = I to 1e-14; traceless to 1e-12;
+eigenvalues are L-th roots L-fold-degenerate. 78/78 pytest tests pass after
+the change.
 
 ## Open Question: Classical vs Quantum Saddle
 

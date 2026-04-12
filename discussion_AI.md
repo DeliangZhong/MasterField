@@ -10,6 +10,50 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-17: R5 resolved — Γ replaced with kron(clock_L, I_L) (Apr 12, 2026)
+
+### Fix
+
+`build_clock_matrix(N)` was returning `diag(1, ω_N, …, ω_N^{N-1})` (eigenvalues = N-th roots of unity, all distinct). This is the wrong spectrum for TEK: the classical saddle uses twist eaters `P_L ⊗ I_L` whose eigenvalues are L-th roots with L-fold degeneracy. Since spectra are invariants under unitary conjugation, the old ansatz Ω Γ Ω† could not reach the TEK classical saddle at finite N.
+
+Replaced with:
+
+    Γ = kron(P_L, I_L)    where P_L = L-dim clock matrix, L² = N
+
+Properties after the swap:
+- Γ^L = I (stronger than the old Γ^N = I)
+- Eigenvalues are L-th roots of unity, each with multiplicity L
+- Traceless for L > 1
+- Matches TEK twist-eater U_1 in arXiv:1708.00841 §2.2 eq. 2.16
+- Coadjoint orbit {Ω Γ Ω†} now contains the classical-saddle partner Q_L ⊗ P_L (same spectrum), so the orientation-only parametrization can reach the saddle
+
+### Verification
+
+78/78 pytest tests pass. New tests added:
+- `test_clock_matrix_eigenvalues_are_L_roots_L_degenerate`: direct eigenvalue check for N ∈ {9, 25, 49}
+- `test_clock_matrix_L_periodic`: Γ^L = I to 1e-10 for N ∈ {9, 25, 49, 121}
+- `test_clock_matrix_rejects_non_perfect_square`: input validation
+- `test_clock_matrix_traceless`: Tr(Γ) = 0 to 1e-12
+- `test_clock_matrix_matches_tek_classical_saddle_U1`: Γ = kron(P_L, I_L) to 1e-14
+
+All pre-existing tests continue to pass (plaquette at H=0, rectangular Wilson loops, TEK classical-saddle W[R×T] = 1, etc.). The change is invisible to the plaquette observable at H=0 because all U_μ = Γ still commute (Γ is block-diagonal).
+
+### Measure of progress
+
+Phase 3 scaffolding now has both R2 (rectangular Wilson loop twist phase) and R5 (ansatz Γ spectrum) resolved. Remaining risks:
+- **R1** (D=4 center-symmetry breaking at k=1, cure via modified flux k ≈ L/2): deferred to Phase D.
+- **R3** (sign conventions): standardized in Phase 3 scaffolding, no action needed.
+- **R4** (orientation-only vs full U(N)): Phase B will test. With R5 fixed the orientation-only ansatz is now MORE likely to succeed since it can reach the classical saddle.
+
+### Parameter count
+
+- Old Γ (N-th roots, distinct): stabilizer = U(1)^N, orbit dimension N² − N.
+- New Γ (L-th roots, L-fold): stabilizer = U(L)^L, orbit dimension N² − L·L² = N² − N^{3/2}.
+
+For N = 49: 2401 − 49 = 2352 (old) vs 2401 − 343 = 2058 (new). Fewer effective parameters, but they encode the correct TEK structure. The remaining L·L² = 343 parameter-directions are gauge (stabilizer of Γ); Adam tolerates this overparametrization but a stabilizer-projected parametrization may be needed for large-N fine-tuning.
+
+---
+
 ## Implementation-16: R2 resolved — rectangular Wilson loop twist phase (Apr 12, 2026)
 
 ### Result

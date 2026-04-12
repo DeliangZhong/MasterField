@@ -40,13 +40,30 @@ from jax.scipy.linalg import expm  # noqa: E402
 
 
 def build_clock_matrix(N: int) -> jnp.ndarray:
-    """Γ = diag(1, ω, ω², …, ω^{N-1}), ω = exp(2πi/N).
+    """TEK clock matrix  Γ = P_L ⊗ I_L  where N = L² and P_L is the L×L clock:
+    P_L = diag(1, ω_L, ω_L², …, ω_L^{L-1}),  ω_L = exp(2πi/L).
 
-    Eigenvalues are the N-th roots of unity. Satisfies Γ^N = I, Γ Γ† = I.
+    Eigenvalues of Γ are the **L-th roots of unity, each with multiplicity L**.
+    Satisfies Γ^L = I (stronger than Γ^N = I), Γ Γ† = I. Trace(Γ) = 0.
+
+    This matches the TEK twist-eater structure (arXiv:1708.00841 §2.2, eq.
+    2.16). The coadjoint orbit {Ω Γ Ω†} CONTAINS the TEK classical saddle
+    (Q_L ⊗ P_L and related twist eaters), so the orientation-only
+    parametrization U_μ = Ω_μ Γ Ω_μ† can, in principle, reach it.
+
+    Note: an earlier version used Γ = diag(N-th roots) (non-degenerate). That
+    spectrum differs from any TEK saddle at finite N and is unreachable via
+    unitary conjugation. The tensor-product form is the correct TEK choice
+    (see reference/tek_master_field.md §"Ansatz Caveat (R5)").
     """
-    k = jnp.arange(N)
-    phases = jnp.exp(2j * jnp.pi * k / N)
-    return jnp.diag(phases).astype(jnp.complex128)
+    L = int(round(N**0.5))
+    if L * L != N:
+        raise ValueError(f"N must be a perfect square (N = L²); got N={N}")
+    jk = jnp.arange(L)
+    phases = jnp.exp(2j * jnp.pi * jk / L)
+    P_L = jnp.diag(phases).astype(jnp.complex128)
+    I_L = jnp.eye(L, dtype=jnp.complex128)
+    return jnp.kron(P_L, I_L)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -195,8 +212,9 @@ def plaquette_average(
 def init_H_list_zero(D: int, N: int) -> list[jnp.ndarray]:
     """Initialize H_μ = 0 for μ = 2, …, D (all U_μ = Γ, strong-coupling start).
 
-    At H=0 every link equals Γ (diagonal), so every plaquette equals I and the
-    plaquette average is Σ_{μ<ν} Re(z_μν) / N_pairs — deterministic.
+    At H=0 every link equals Γ (block-diagonal kron(P_L, I_L)), and since all
+    these Γ copies commute, U_μ U_ν U_μ† U_ν† = I, so plaquette_{μν} = Re(z_μν).
+    The plaquette average is Σ_{μ<ν} Re(z_μν) / N_pairs — deterministic.
     """
     return [jnp.zeros((N, N), dtype=jnp.complex128) for _ in range(D - 1)]
 
@@ -242,13 +260,13 @@ def _smoke_test() -> None:
         )
         assert err < 1e-12, f"Smoke test failed for D={D} N={N}: err={err:.3e}"
 
-    # Clock matrix: Γ^N = I
-    for N in (9, 49, 121):
+    # Clock matrix: Γ^L = I (stronger than Γ^N = I; TEK-style tensor-product Γ)
+    for N, L in ((9, 3), (49, 7), (121, 11)):
         Gamma = build_clock_matrix(N)
-        Gamma_N = jnp.linalg.matrix_power(Gamma, N)
+        Gamma_L = jnp.linalg.matrix_power(Gamma, L)
         eye = jnp.eye(N, dtype=jnp.complex128)
-        err = float(jnp.linalg.norm(Gamma_N - eye))
-        print(f"  Clock matrix N={N}: ||Γ^N − I||_F = {err:.2e}  {'✓' if err < 1e-10 else '✗'}")
+        err = float(jnp.linalg.norm(Gamma_L - eye))
+        print(f"  Clock matrix N={N} L={L}: ||Γ^L − I||_F = {err:.2e}  {'✓' if err < 1e-10 else '✗'}")
         assert err < 1e-10, f"Clock matrix failed for N={N}"
 
     # Twist tensor antisymmetry: z[μ,ν] = conj(z[ν,μ])
