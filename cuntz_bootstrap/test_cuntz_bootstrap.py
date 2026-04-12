@@ -293,3 +293,77 @@ def test_unitarity_loss_from_identity_params_zero():
     params = [c0, c0]
     loss = unitarity_loss_from_params(params, f)
     assert float(loss) < 1e-20
+
+
+# -------------------------------------------------------------------------
+# Task 5: Wilson loop evaluator
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.wilson_loops import (  # noqa: E402
+    build_forward_link_ops,
+    wilson_loop,
+)
+
+
+@pytest.mark.unit
+def test_empty_loop_gives_one():
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    W = wilson_loop([I, I], loop=(), fock=f, D=2)
+    assert float(jnp.abs(W - 1.0)) < 1e-12
+
+
+@pytest.mark.unit
+def test_identity_loop_gives_one():
+    """Any closed loop with all-identity Û evaluates to 1."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    W = wilson_loop([I, I], loop=(1, 2, -1, -2), fock=f, D=2)
+    assert float(jnp.abs(W - 1.0)) < 1e-12
+
+
+@pytest.mark.unit
+def test_loop_with_mu_zero_raises():
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    with pytest.raises(ValueError):
+        wilson_loop([I, I], loop=(1, 0, -1), fock=f, D=2)
+
+
+@pytest.mark.unit
+def test_wilson_loop_differentiable_through_params():
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
+
+    def loss_fn(ps):
+        Us = build_forward_link_ops(ps, fock=f)
+        W = wilson_loop(Us, loop=(1, 2, -1, -2), fock=f, D=2)
+        return jnp.real(W)
+
+    val, grads = jax.value_and_grad(loss_fn)(params)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+@pytest.mark.unit
+def test_wilson_loop_single_edge_gives_vacuum_amplitude():
+    """W[(1,)] = ⟨Ω|Û_1|Ω⟩ = c^{(+)}_{empty}."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    # Set only the identity coefficient = 0.7 for Û_1
+    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(0.7 + 0.1j)
+    U_list = [assemble_master_operator(c, f)]
+    W = wilson_loop(U_list, loop=(1,), fock=f, D=1)
+    assert float(jnp.abs(W - (0.7 + 0.1j))) < 1e-12
+
+
+@pytest.mark.unit
+def test_wilson_loop_adjoint_convention():
+    """W[(1, -1)] = ⟨Ω|Û_1 Û_1†|Ω⟩ = ⟨Ω|(UU†)|Ω⟩ = (UU†)[0,0]."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    params = init_master_operator_params(n_matrices=1, fock=f, seed=7)
+    U_list = build_forward_link_ops(params, fock=f)
+    U = U_list[0]
+    W = wilson_loop(U_list, loop=(1, -1), fock=f, D=1)
+    expected = (U @ U.conj().T)[0, 0]
+    assert float(jnp.abs(W - expected)) < 1e-12
