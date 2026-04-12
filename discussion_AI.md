@@ -10,6 +10,56 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-18: R4 resolved — full U(N) ansatz as alternative to orientation-only (Apr 12, 2026)
+
+### What was added
+
+Alongside the orientation-only ansatz U_μ = Ω_μ Γ Ω_μ† (eigenvalues locked to L-th roots of unity, L-fold degenerate), we now also support the **full U(N) ansatz**:
+
+    U_μ = expm(i M_μ),   M_μ Hermitian,   μ = 1, …, D
+
+Parameters: D · N² real (vs. (D−1) · N² for orientation). Eigenvalues of each U_μ are free; this ansatz can represent center-symmetry-breaking configurations that the orientation-only ansatz cannot (e.g., fluxons relevant to D=4 TEK at k=1 per hep-th/0612097).
+
+### Implementation
+
+- `tek.py`: new `build_link_matrices_full`, `tek_loss_full`, `plaquette_average_full`, `init_M_list_zero`, `init_M_list_random`.
+- `optimize.py`: `optimize_tek` and `coupling_continuation` accept `ansatz ∈ {"orientation", "full"}` (orientation default). `OptResult.params` holds H_list or M_list depending on ansatz, `OptResult.ansatz` stores the choice. Backward-compat `res.H_list` / `res.M_list` properties alias `res.params`.
+- `train.py`: new `--ansatz {orientation, full}` flag. Output file naming now includes the ansatz tag.
+- `test_tek.py`: 11 new tests (full ansatz unitarity, M=0 plaquette matches H=0 orientation value, optimizer loss-decrease and unitarity preservation, input validation). 89/89 total pass.
+
+### At-M=0 vs at-H=0 parity
+
+Verified: at H=0 (orientation, all U_μ = Γ) and M=0 (full, all U_μ = I) the loss has the same value = −(mean Re(z_μν)). Both plaquette products equal I. The two ansätze start from the same loss but on different parameter manifolds; Adam explores different directions from there.
+
+### Parameter counts (N = 49, D = 2 example)
+
+| ansatz | params | orbit dim | gauge dim |
+|--------|--------|-----------|-----------|
+| orientation | 1 × 49² = 2401 | ~2058 | 343 (U(L)^L stabilizer) |
+| full | 2 × 49² = 4802 | 4802 | N² − 1 = 2400 global gauge |
+
+Full has more parameters AND more gauge redundancy. Per gradient step the full mode is about 2× slower (two expm's vs one), but the step count to saddle may differ either way.
+
+### Purpose
+
+Phase B will run both ansätze on untwisted EK (D=2) and compare. Expected:
+
+- If orientation reaches a coupling-dependent saddle with the correct GW strong-coupling answer, great — use orientation for Phase C/D (cheaper).
+- If orientation stays stuck at the classical TEK vacuum (plaquette ≈ 1 regardless of λ), that's R4 failing, and full should produce the quantum master field (at the cost of D·N² params).
+- If BOTH fail to produce coupling-dependent plaquette, the loss function itself needs a Haar-entropy term — a deeper physics issue noted in the reference doc §"Open Question".
+
+### Phase 3 risk status summary
+
+| Risk | Status | Note |
+|------|--------|------|
+| R1 D=4 center-symmetry breaking at k=1 | deferred | Addressed in Phase D via `--k` and modified flux per arXiv:1005.1981 |
+| R2 rectangular Wilson loop twist phase | resolved (Impl-16) | W[R×T] = Re[z^{RT} · Tr(...)]/N, verified on classical saddle |
+| R3 sign conventions | resolved (Phase 3 scaffolding) | Standardized loss = −(mean plaquette)/N_pairs |
+| R4 orientation-only sufficiency | resolved (this entry) | Full U(N) available via `--ansatz full` |
+| R5 Γ spectrum mismatch with TEK saddle | resolved (Impl-17) | Γ = kron(P_L, I_L), classical saddle reachable |
+
+---
+
 ## Implementation-17: R5 resolved — Γ replaced with kron(clock_L, I_L) (Apr 12, 2026)
 
 ### Fix

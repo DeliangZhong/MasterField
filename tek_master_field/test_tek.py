@@ -27,12 +27,17 @@ from observables import (  # noqa: E402
 from tek import (  # noqa: E402
     build_clock_matrix,
     build_link_matrices,
+    build_link_matrices_full,
     build_twist,
     hermitianize,
     init_H_list_random,
     init_H_list_zero,
+    init_M_list_random,
+    init_M_list_zero,
     plaquette_average,
+    plaquette_average_full,
     tek_loss,
+    tek_loss_full,
 )
 
 
@@ -465,11 +470,115 @@ def test_optimizer_preserves_link_unitarity():
         D=2, N=9, lam=5.0, n_steps=40, lr=0.05, twist=True, log_every=50, verbose=False
     )
     Gamma = build_clock_matrix(9)
-    U = build_link_matrices(res.H_list, Gamma)
+    U = build_link_matrices(res.params, Gamma)
     eye = jnp.eye(9, dtype=jnp.complex128)
     for mu in range(2):
         err = float(jnp.linalg.norm(U[mu] @ jnp.conj(U[mu].T) - eye))
         assert err < 1e-10, f"U_{mu+1} not unitary after opt: err={err:.3e}"
+
+
+# ═══════════════════════════════════════════════════════════════
+# R4: Full U(N) ansatz
+# ═══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("D,N", [(2, 9), (3, 25), (4, 49)])
+def test_full_ansatz_builds_unitary(D: int, N: int):
+    """U_μ = expm(i M_μ) is unitary when M_μ is Hermitian."""
+    key = random.PRNGKey(42)
+    M_list = init_M_list_random(D, N, key, scale=0.3)
+    U = build_link_matrices_full(M_list)
+    assert len(U) == D
+    eye = jnp.eye(N, dtype=jnp.complex128)
+    for mu in range(D):
+        err = float(jnp.linalg.norm(U[mu] @ jnp.conj(U[mu].T) - eye))
+        assert err < 1e-10, f"full-ansatz U_{mu+1} not unitary: err={err:.3e}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("D,N,L,k", [(2, 9, 3, 1), (2, 49, 7, 1), (4, 49, 7, 1)])
+def test_full_plaquette_at_M0_equals_mean_Re_z(D: int, N: int, L: int, k: int):
+    """At M=0 every U_μ = I, so plaquette_{μν} = Re(z_μν); mean plaquette =
+    mean Re(z_μν) over ordered pairs. Matches the orientation ansatz at H=0."""
+    z = build_twist(D, N, L, k=k)
+    M_list = init_M_list_zero(D, N)
+    plaq = float(plaquette_average_full(M_list, z, D))
+
+    z_re = [float(jnp.real(z[mu, nu])) for mu in range(D) for nu in range(mu + 1, D)]
+    expected = sum(z_re) / len(z_re)
+    assert abs(plaq - expected) < 1e-12
+
+
+@pytest.mark.unit
+def test_full_and_orientation_agree_at_identity_init():
+    """At H=0 (orientation) and M=0 (full) the loss value should match,
+    since both give all-I plaquette product."""
+    D, N, L = 2, 49, 7
+    Gamma = build_clock_matrix(N)
+    z = build_twist(D, N, L, k=1)
+    H_list = init_H_list_zero(D, N)
+    M_list = init_M_list_zero(D, N)
+    a = float(tek_loss(H_list, Gamma, z, D))
+    b = float(tek_loss_full(M_list, z, D))
+    assert abs(a - b) < 1e-12
+
+
+@pytest.mark.integration
+def test_full_ansatz_optimizer_decreases_loss():
+    """Full ansatz: a few Adam steps strictly decrease the loss on D=2 N=9."""
+    from optimize import optimize_tek
+
+    res = optimize_tek(
+        D=2, N=9, lam=5.0, n_steps=60, lr=0.05, twist=True,
+        ansatz="full", log_every=10, verbose=False,
+    )
+    assert res.ansatz == "full"
+    assert len(res.params) == 2  # D=2 matrices (not D-1)
+    loss_hist = res.history["loss"]
+    assert loss_hist[-1] < loss_hist[0] - 0.05, (
+        f"Full-ansatz loss did not decrease: start={loss_hist[0]:.4f}, "
+        f"end={loss_hist[-1]:.4f}"
+    )
+
+
+@pytest.mark.integration
+def test_full_ansatz_preserves_unitarity():
+    """After full-ansatz optimization, each U_μ remains unitary."""
+    from optimize import optimize_tek
+
+    res = optimize_tek(
+        D=2, N=9, lam=5.0, n_steps=50, lr=0.05, twist=True,
+        ansatz="full", log_every=50, verbose=False,
+    )
+    U = build_link_matrices_full(res.params)
+    eye = jnp.eye(9, dtype=jnp.complex128)
+    for mu in range(2):
+        err = float(jnp.linalg.norm(U[mu] @ jnp.conj(U[mu].T) - eye))
+        assert err < 1e-10, f"full-ansatz U_{mu+1} not unitary after opt: err={err:.3e}"
+
+
+@pytest.mark.unit
+def test_optimize_tek_rejects_unknown_ansatz():
+    from optimize import optimize_tek
+
+    with pytest.raises(ValueError, match="Unknown ansatz"):
+        optimize_tek(D=2, N=9, lam=1.0, n_steps=10, ansatz="garbage", verbose=False)
+
+
+@pytest.mark.unit
+def test_optimize_tek_rejects_wrong_init_params_length():
+    """If init_params has the wrong length for the chosen ansatz, raise."""
+    from optimize import optimize_tek
+
+    key = random.PRNGKey(0)
+    # For D=2 orientation expects 1 matrix; pass 2 → should raise.
+    wrong = init_M_list_random(2, 9, key)
+    with pytest.raises(ValueError, match="expects"):
+        optimize_tek(
+            D=2, N=9, lam=1.0, n_steps=10, ansatz="orientation",
+            init_params=wrong, verbose=False,
+        )
 
 
 if __name__ == "__main__":

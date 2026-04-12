@@ -61,32 +61,58 @@ Explicitly: L = 7 → k = 3; L = 11 → k = 5; L = 13 → k = 5 or 6; L = 17 →
 
 For D = 2 and D = 3 the symmetric flux k = 1 is safe.
 
-## Master Field Ansatz (Center-Symmetric Orientation)
+## Master Field Ansätze
 
-The center-symmetric saddle has U_μ with eigenvalues locked to the N-th roots of
-unity. Parametrize:
+Two ansätze are supported. Both use the same loss (sign-fixed plaquette action);
+they differ in the parametrization of the link matrices.
 
-    U_μ = Ω_μ · Γ · Ω_μ†,   Γ = diag(1, ω, ω², …, ω^{N-1}),   ω = exp(2πi/N)
+### Orientation (default)
 
-Gauge-fix Ω_1 = I (so U_1 = Γ). The unknowns are Ω_2, …, Ω_D, each parametrized
-by a Hermitian generator:
+    Γ = P_L ⊗ I_L    (see §"Ansatz Caveat (R5)" below)
+    U_1 = Γ,   U_μ = Ω_μ Γ Ω_μ† for μ ≥ 2,   Ω_μ = exp(i H_μ),   H_μ = H_μ†
 
-    Ω_μ = exp(i H_μ),   H_μ = H_μ†
+- Parameters: (D − 1) Hermitian N×N matrices, (D − 1)·N² real.
+- Eigenvalues of every U_μ locked to L-th roots of unity, each L-fold degenerate.
+- Cannot break center symmetry (Tr(U_μ)/N = 0 exactly at all points of the
+  orientation manifold).
+- Haar measure on the coadjoint orbit {g Γ g†} is invariant (KKS form with fixed
+  eigenvalues), so the effective action restricted to the orbit IS the classical
+  TEK action. No entropy term.
 
-giving (D − 1) · N² real parameters. The Haar measure on the conjugation orbit
-{g Γ g†} is proportional to the Vandermonde of the eigenvalues, which is CONSTANT
-since the eigenvalues are fixed. In this ansatz the effective action is the
-classical TEK action itself.
+### Full U(N)
 
-**Saddle characterization.** The extremum of S_TEK on this submanifold is the
-configuration that maximizes Σ Re[z_μν · Tr(U_μ U_ν U_μ† U_ν†)] / N. In the
-twisted case this is achieved at the Heisenberg clock-and-shift pair:
+    U_μ = exp(i M_μ)    for μ = 1, …, D,   M_μ = M_μ†
 
-    U_1 = Γ,   U_2 = S,   with   Γ S = z₁₂ · S Γ
+- Parameters: D Hermitian N×N matrices, D·N² real.
+- Eigenvalues of each U_μ are free to take any values on the unit circle.
+- Can represent center-symmetry-breaking configurations (e.g., the "fluxons"
+  discussed in hep-th/0612097 for D=4 TEK with k=1).
+- No gauge fixing; the global gauge U_μ → g U_μ g† creates a flat
+  (N² − 1)-dimensional direction which Adam tolerates.
 
-and the corresponding plaquette value is W[□] = 1. This is the CLASSICAL TEK
-vacuum. Whether it coincides with the quantum master field at a given coupling
-is a coupling- and ansatz-dependent question (see "Open Question" below).
+### When to use each
+
+- **Orientation** assumes center symmetry is unbroken at the saddle. Fast, few
+  parameters, guaranteed to stay in the Z_N^D-symmetric sector. Correct for
+  D=2, D=3 symmetric twist, and for D=4 with a stable flux (k ≈ L/2 per
+  arXiv:1005.1981).
+- **Full** relaxes the center-symmetry constraint. Use in D=4 symmetric k=1
+  (where center symmetry is known to break), in Phase B untwisted EK, or as a
+  cross-check against orientation-only results. More expensive.
+
+### Saddle characterization (orientation ansatz)
+
+The extremum of S_TEK on the orientation submanifold is the configuration that
+maximizes Σ_{μ<ν} Re[z_μν · Tr(U_μ U_ν U_μ† U_ν†)] / N. Achieved at the
+Heisenberg clock-shift pair:
+
+    U_1 = Γ,   U_2 = Ω Γ Ω† with Ω chosen so that U_2 = Q_L ⊗ P_L
+
+satisfying U_1 U_2 = z₁₂^{−1} U_2 U_1. With Γ = P_L ⊗ I_L and Q_L ⊗ P_L
+sharing the same spectrum, such an Ω exists. At this saddle W[□] = 1.
+
+Whether this saddle is the physical master field (coupling-independent in
+our loss) is still open at finite N — see "Open Question" below.
 
 ## Rectangular Wilson Loop — Twist Phase (R2, RESOLVED)
 

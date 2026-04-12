@@ -57,6 +57,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--output_dir", type=str, default="results", help="Output directory")
     p.add_argument("--validate", action="store_true", help="Compare with exact/benchmark where possible")
     p.add_argument("--quiet", action="store_true", help="Suppress per-step logging")
+    p.add_argument(
+        "--ansatz",
+        choices=["orientation", "full"],
+        default="orientation",
+        help="orientation: U_μ = Ω_μ Γ Ω_μ† (eigenvalues locked to L-th roots). "
+             "full: U_μ = expm(iM_μ) (eigenvalues free; can break center symmetry).",
+    )
     return p.parse_args()
 
 
@@ -103,21 +110,23 @@ def _run_tek_or_ek(args: argparse.Namespace, twist: bool) -> int:
 
     print("=" * 70)
     print(f"  {'TEK' if twist else 'EK (untwisted)'} — D={args.D}, N={args.N}, L={L}, k={args.k}")
+    print(f"  ansatz: {args.ansatz}")
     print(f"  schedule: {schedule}")
     print(f"  opt: n_steps={args.n_steps}, lr={args.lr}, warmup={args.warmup}")
     print("=" * 70)
 
     t0 = time.time()
     os.makedirs(args.output_dir, exist_ok=True)
+    tag_base = f"{'tek' if twist else 'ek'}_D{args.D}_N{args.N}_k{args.k}_{args.ansatz}"
 
     if len(schedule) == 1:
         res = optimize_tek(
             D=args.D, N=args.N, lam=schedule[0],
             n_steps=args.n_steps, lr=args.lr, warmup=args.warmup,
-            k=args.k, twist=twist, seed=args.seed,
+            k=args.k, twist=twist, ansatz=args.ansatz, seed=args.seed,
             verbose=not args.quiet,
         )
-        tag = f"{'tek' if twist else 'ek'}_D{args.D}_N{args.N}_k{args.k}_lam{schedule[0]:.4f}"
+        tag = f"{tag_base}_lam{schedule[0]:.4f}"
         _save_result(res, args.output_dir, tag)
         print(f"\nfinal plaq={res.final_plaquette:.8f}  |grad|/N={res.final_grad_norm:.2e}  "
               f"converged={res.converged}")
@@ -125,24 +134,31 @@ def _run_tek_or_ek(args: argparse.Namespace, twist: bool) -> int:
         results = coupling_continuation(
             D=args.D, N=args.N, lam_schedule=schedule,
             n_steps_per=args.n_steps, lr=args.lr, k=args.k,
-            twist=twist, seed=args.seed, verbose=not args.quiet,
+            twist=twist, ansatz=args.ansatz, seed=args.seed,
+            verbose=not args.quiet,
         )
         summary = [(lam, r.final_plaquette, r.final_grad_norm, r.converged) for lam, r in results.items()]
-        tag = f"{'tek' if twist else 'ek'}_D{args.D}_N{args.N}_k{args.k}_continuation"
+        tag = f"{tag_base}_continuation"
         with open(os.path.join(args.output_dir, f"{tag}.json"), "w") as f:
             json.dump({
                 "D": args.D, "N": args.N, "k": args.k, "twist": twist,
+                "ansatz": args.ansatz,
                 "schedule": schedule,
                 "plaquette_by_lam": [(float(lam), float(plaq)) for (lam, plaq, _, _) in summary],
                 "grad_norm_by_lam": [(float(lam), float(g)) for (lam, _, g, _) in summary],
                 "converged_by_lam": [(float(lam), bool(c)) for (lam, _, _, c) in summary],
             }, f, indent=2)
-        # Save final H for each λ
+        # Save final params for each λ. Orientation: H_2..H_D; full: M_1..M_D.
+        param_tag = "H" if args.ansatz == "orientation" else "M"
+        param_offset = 2 if args.ansatz == "orientation" else 1
         for lam, res in results.items():
-            for mu, H in enumerate(res.H_list):
+            for mu, P in enumerate(res.params):
                 np.save(
-                    os.path.join(args.output_dir, f"{tag}_H{mu + 2}_lam{lam:.4f}.npy"),
-                    np.asarray(H),
+                    os.path.join(
+                        args.output_dir,
+                        f"{tag}_{param_tag}{mu + param_offset}_lam{lam:.4f}.npy",
+                    ),
+                    np.asarray(P),
                 )
 
         print("\n  λ          plaq          |grad|/N    converged")
@@ -157,14 +173,21 @@ def _save_result(res, output_dir: str, tag: str) -> None:
     with open(os.path.join(output_dir, f"{tag}.json"), "w") as f:
         json.dump({
             "D": res.D, "N": res.N, "lam": res.lam,
+            "ansatz": res.ansatz,
             "final_loss": res.final_loss,
             "final_plaquette": res.final_plaquette,
             "final_grad_norm": res.final_grad_norm,
             "converged": res.converged,
             "history": res.history,
         }, f, indent=2)
-    for mu, H in enumerate(res.H_list):
-        np.save(os.path.join(output_dir, f"{tag}_H{mu + 2}.npy"), np.asarray(H))
+    # Orientation: H_2..H_D (D-1 matrices). Full: M_1..M_D (D matrices).
+    param_tag = "H" if res.ansatz == "orientation" else "M"
+    param_offset = 2 if res.ansatz == "orientation" else 1
+    for mu, P in enumerate(res.params):
+        np.save(
+            os.path.join(output_dir, f"{tag}_{param_tag}{mu + param_offset}.npy"),
+            np.asarray(P),
+        )
 
 
 def main() -> int:

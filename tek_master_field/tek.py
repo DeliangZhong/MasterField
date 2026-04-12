@@ -167,6 +167,45 @@ def _plaquette_traces(U: list[jnp.ndarray], z: jnp.ndarray, D: int) -> jnp.ndarr
     return jnp.stack(vals)
 
 
+def build_link_matrices_full(M_list: list[jnp.ndarray]) -> list[jnp.ndarray]:
+    """Full U(N) parametrization:  U_μ = expm(i M_μ)  for μ = 1, …, D.
+
+    No clock-matrix reference: each U_μ is an arbitrary unitary, determined by
+    a Hermitian M_μ. Total parameters: D · N² real. The eigenvalues of U_μ are
+    no longer locked to the L-th roots of unity, so this ansatz can represent
+    center-symmetry-breaking configurations (e.g., fluxons) that the
+    orientation-only ansatz cannot.
+
+    No gauge fixing — the global gauge freedom U_μ → g U_μ g† leaves the loss
+    invariant, producing a flat N² − 1-dimensional direction at every point.
+    Adam tolerates this overparametrization; projection to a gauge slice (e.g.,
+    M_1 = 0) would reduce params to (D−1) N² but is not required.
+    """
+    return [expm(1j * M) for M in M_list]
+
+
+def tek_loss_full(
+    M_list: list[jnp.ndarray],
+    z: jnp.ndarray,
+    D: int,
+) -> jnp.ndarray:
+    """TEK loss under the full U(N) ansatz. Same sign convention as tek_loss
+    (negative of the average plaquette)."""
+    U = build_link_matrices_full(M_list)
+    plaqs = _plaquette_traces(U, z, D)
+    n_pairs = plaqs.shape[0]
+    return -jnp.sum(plaqs) / n_pairs
+
+
+def plaquette_average_full(
+    M_list: list[jnp.ndarray],
+    z: jnp.ndarray,
+    D: int,
+) -> jnp.ndarray:
+    """Mean plaquette under the full ansatz. Physical observable."""
+    return -tek_loss_full(M_list, z, D)
+
+
 def tek_loss(
     H_list: list[jnp.ndarray],
     Gamma: jnp.ndarray,
@@ -234,6 +273,34 @@ def init_H_list_random(D: int, N: int, key, scale: float = 0.1) -> list[jnp.ndar
         im = random.normal(subkey, (N, N))
         H = (re + 1j * im).astype(jnp.complex128) * scale
         out.append(hermitianize(H))
+    return out
+
+
+def init_M_list_zero(D: int, N: int) -> list[jnp.ndarray]:
+    """Initialize M_μ = 0 for μ = 1, …, D (full ansatz; all U_μ = I).
+
+    At M = 0 every U_μ = I, so plaquettes are trivially I and
+    plaquette_{μν} = Re(z_μν) (same initial loss as orientation H=0).
+    """
+    return [jnp.zeros((N, N), dtype=jnp.complex128) for _ in range(D)]
+
+
+def init_M_list_random(D: int, N: int, key, scale: float = 0.1) -> list[jnp.ndarray]:
+    """Initialize M_μ as small random Hermitian matrices (full ansatz).
+
+    Used to break the zero-gradient symmetry at M=0 and to break center
+    symmetry at initialization if desired.
+    """
+    from jax import random
+
+    out: list[jnp.ndarray] = []
+    for _ in range(D):
+        key, subkey = random.split(key)
+        re = random.normal(subkey, (N, N))
+        key, subkey = random.split(key)
+        im = random.normal(subkey, (N, N))
+        M = (re + 1j * im).astype(jnp.complex128) * scale
+        out.append(hermitianize(M))
     return out
 
 
