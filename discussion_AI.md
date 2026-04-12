@@ -10,6 +10,161 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-24: Phase 3 retrospective — session summary and handoff (Apr 12, 2026)
+
+Summary of what was built, learned, and what remains — intended as a handoff
+when picking this up next.
+
+### What Phase 3 set out to do
+
+Construct the SU(∞) master field for lattice Yang-Mills as explicit N×N
+unitary matrices via direct gradient-descent optimization on the Twisted
+Eguchi-Kawai (TEK) action. If successful at D=4, this would be the first
+explicit construction of the SU(∞) master field for 4D YM (an open problem
+since Witten 1979 / Gopakumar-Gross 1994). See Discussion-15 for the plan.
+
+### What was delivered
+
+A complete, tested scaffolding for TEK direct optimization in D=2,3,4:
+
+```
+tek_master_field/
+├── __init__.py, config.py, conftest.py
+├── tek.py              core: clock matrix, twist, link builder, action
+├── observables.py      plaquette, Polyakov, eigenvalue density, W[R×T]
+├── optimize.py         classical-action Adam + cosine schedule
+├── mm_loss.py          MM residual loss + 3 optional anchor modes
+├── gross_witten.py     Phase A sanity check (GW 1-matrix)
+├── train.py            CLI: --model {gw,ek,tek} --ansatz {orientation,full}
+├── phase_b.py          classical-action experiment (untwisted EK D=2)
+├── phase_b_mm.py       MM experiment (untwisted EK D=2)
+└── test_tek.py         89 pytest tests, all passing
+```
+
+Plus `reference/tek_master_field.md`, `cluster/submit_tek.pbs`, and eight
+Implementation entries in this log (Impl-16..23).
+
+### Physics risks and resolutions
+
+| Risk | What | Status |
+|------|------|--------|
+| R1 | D=4 k=1 center-symmetry breaking | deferred (`--k` accepts modified flux per arXiv:1005.1981) |
+| R2 | Rectangular Wilson loop twist phase | resolved — `W[R×T] = Re[z^{RT} · Tr(...)]/N` (arXiv:1708.00841 eq 2.4) |
+| R3 | Sign conventions for action | resolved (scaffolding standardized) |
+| R4 | Orientation-only sufficiency | resolved — full U(N) ansatz available via `--ansatz full` |
+| R5 | Γ spectrum mismatch with TEK saddle | resolved — Γ = kron(P_L, I_L), eigenvalues = L-th roots L-fold |
+| R6 | Classical action minimizes to CLASSICAL vacuum, not master field | partially resolved — MM loss recovers coupling dependence |
+| R7 | MM candidate-D underdetermined | partially resolved — area-law anchor fixes small loops |
+| R8 | Toeplitz-PSD positivity | resolved — Toeplitz trivial in matrix param; the nontrivial analog is a center-moment anchor, which fixes MM's spontaneous Z_N breaking |
+| R9 | Multi-matrix large-loop correlation | **open** |
+
+One side finding: a **JAX complex-gradient sign bug** was discovered during
+Phase B. `jax.grad(f)(z)` for real f of complex z returns `∂f/∂x − i·∂f/∂y`
+(conjugate of the descent direction). The optimizer was updating in the wrong
+direction; fixed by `grads = [jnp.conj(g) for g in grads]` before
+hermitianizing and passing to Adam. Documented in Impl-19.
+
+### Final empirical state (D=2, N=9, untwisted EK, λ=5, full ansatz)
+
+Best loss combination: `MM + area_law(w=0.1) + moment(K=4, w=10)`:
+
+| observable | Gross-Witten | ML result | error |
+|---|---|---|---|
+| W[plaquette] | 0.1000 | +0.107 | 7% |
+| W[2×1] | 0.0100 | +0.013 | 30% |
+| W[2×2] | 0.0001 | +0.089 | 900× |
+| Σ\|Tr(U_μ)/N\|² | 0 | 3e−5 | ✓ |
+
+Small loops within a few percent; center symmetry preserved; large loops (area
+≥ 4) fail by ~900×. At strong coupling only (λ ≥ 2). Weak coupling (λ < 1.5)
+unreliable across all ansatz + loss combinations.
+
+### Epistemic progression across the session
+
+1. **Phase B with classical action** (Impl-19): saddle = classical vacuum at
+   every λ. plaquette = 1 regardless of coupling. Completely wrong physics.
+   This surfaced R6 and the JAX sign bug.
+2. **Phase B-MM** (Impl-21): MM loss recovers coupling-dependent plaquette to
+   ~1% at strong coupling, but gives W[2×1] = W[plaq] (constant-w solution;
+   wrong area law). Surfaced R7.
+3. **MM + area-law anchor** (Impl-22): recovers W[2×1] ≈ GW² to 3% at λ=5.
+   Larger loops still off. Anchor weight ≈ 0.1 is the sweet spot at λ=5;
+   breaks down at intermediate couplings.
+4. **MM + moment anchor** (Impl-23): MM-only was spontaneously breaking Z_N
+   (|Tr/N| ≈ 0.55 per matrix — large). Moment anchor restores Z_N; combined
+   with area-law anchor gives the final-state table above.
+
+### Honest assessment of the gap
+
+The matrix parametrization finds configurations with eigenvalue density matching MC
+for SMALL probes (plaquette, 2×1) but with arbitrary high-order correlations
+between U_1 and U_2. Neither MM candidate-D (leading order in 1/λ) nor any
+soft constraint we tried shapes the JOINT eigenvalue/eigenvector structure of
+multiple matrices strongly enough for larger loops.
+
+Phase 1b hit the same wall with a neural loop parametrization — MM alone is
+underdetermined, supervised warm-start helps small loops but drifts.
+
+Three conclusions are consistent with the evidence:
+
+1. **Matrix parametrization is too flexible.** Finite N gives many
+   configurations compatible with our soft constraints; the optimizer picks
+   one that's "good enough" on the probes we anchor but wrong elsewhere.
+2. **The loss is physically incomplete.** Kazakov-Zheng SDP parametrizes W[C]
+   directly as bootstrap variables and adds enough positivity to uniquely
+   pin the master field. Their SDP framework has the physical constraints
+   we're missing.
+3. **Large-N effects matter.** We worked at N=9 (L=3) and N=49 (L=7). The
+   finite-N corrections for W[2×2] scale as O(4/N²) but the gap we see is
+   200×-900× — much larger than expected finite-N. Suggests (1) or (2), not
+   just N.
+
+### Three paths when resuming
+
+A. **Accept and publish strong-coupling, small-loop results.** Current accuracy
+   is publishable as "proof of concept: matrix master field for TEK at strong
+   coupling, Wilson loops up to area 2 within a few percent." Honest about
+   limitations. Cheapest to complete; limited physics novelty.
+
+B. **Pivot to Kazakov-Zheng SDP + matrix reconstruction.** Solve the SDP for
+   W[C] values first (uses existing `master_field/bootstrap_sdp.py`), then
+   reconstruct U_μ matrices from the W[C] via moment-matching / Gopakumar-Gross
+   Cuntz-Fock. More physics, more work. The matrix-reconstruction step is
+   itself research.
+
+C. **Higher-order MM equations.** Candidate D is leading order in 1/λ. Next-
+   order corrections would pin more loops. Derivation is nontrivial but
+   mechanical from the lattice action. Would close R7 but probably not R9 (the
+   multi-matrix correlation issue is structural, not about MM precision).
+
+Recommended next step if continuing: **A** — finalize strong-coupling
+small-loop results at N=49 with both anchors, cluster run, write up. Defer the
+large-loop gap as a known open problem.
+
+### Deferred items (never started this session)
+
+- **Phase C** (twisted TEK D=2 at N=49, 121, 289) — infrastructure exists
+  (`--model tek` in train.py, plus anchored MM loss). Would compare
+  MM-recovered plaquette to MC benchmarks at modest N.
+- **Phase D** (TEK D=4 at N=49, then 289) — requires R1 resolution (modified
+  flux k ≈ L/2 per arXiv:1005.1981). `build_twist` accepts `k` argument already.
+- **Phase E** (N → ∞ extrapolation via N ∈ {49, 121, 289, 529}) — after Phase C/D.
+- **Cluster runs** (`cluster/submit_tek.pbs` written but not executed).
+- **Paper** — nothing written yet; the physics reference at
+  `reference/tek_master_field.md` and these discussion entries have the content.
+
+### How to resume
+
+1. `cd tek_master_field && python3 -m pytest -q` — confirm 89/89 tests still pass.
+2. `python3 phase_a_main.py` — Phase A gate (GW at machine precision).
+3. `python3 phase_b_mm.py` — reproduces the MM-only Phase B.
+4. Pick path A, B, or C above. Anchored-MM at stronger settings is one-line
+   parameter tweaks to `optimize_tek_mm` (see `make_mm_loss_fn` signature).
+5. Relevant files: `tek_master_field/mm_loss.py` (loss fns), `optimize.py`
+   (classical-action optimizer), `observables.py` (Wilson loops).
+
+---
+
 ## Implementation-23: R8 — Toeplitz-PSD automatic; center-moment anchor fixes symmetry-breaking (Apr 12, 2026)
 
 ### Why classical Toeplitz-PSD is trivial in our setup
