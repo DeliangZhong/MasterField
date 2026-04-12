@@ -703,6 +703,74 @@ def test_reflection_positivity_differentiable():
 
 
 # -------------------------------------------------------------------------
+# v2 Task 8: Total loss factory
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.total_loss import LossComponents, make_total_loss_fn  # noqa: E402
+
+
+@pytest.mark.integration
+def test_total_loss_differentiable():
+    from cuntz_bootstrap.hermitian_operator import init_hermitian_params as _init_v2
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loss_fn = make_total_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2,
+        weights={"mm": 1.0, "cyc": 1.0, "rp": 1.0, "sym": 1.0},
+    )
+    params = _init_v2(n_matrices=2, fock=f, seed=17, scale=0.05)
+    val, grads = jax.value_and_grad(loss_fn, argnums=0)(params, 5.0)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+@pytest.mark.integration
+def test_total_loss_components_sum_to_total():
+    from cuntz_bootstrap.hermitian_operator import init_hermitian_params as _init_v2
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    weights = {"mm": 1.5, "cyc": 0.7, "rp": 0.3, "sym": 0.5}
+    loss_fn = make_total_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2,
+        weights=weights, return_components=True,
+    )
+    params = _init_v2(n_matrices=2, fock=f, seed=19, scale=0.05)
+    comps = loss_fn(params, 5.0)
+    assert isinstance(comps, LossComponents)
+    expected = (
+        weights["mm"] * comps.L_MM
+        + weights["cyc"] * comps.L_cyc
+        + weights["rp"] * comps.L_RP
+        + weights["sym"] * comps.L_sym
+    )
+    err = float(jnp.abs(comps.total - expected))
+    assert err < 1e-12
+
+
+@pytest.mark.integration
+def test_total_loss_identity_only_mm_nonzero():
+    """Û = I → L_cyc = L_RP = L_sym = 0, but L_MM > 0. Total = w_mm * L_MM."""
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loss_fn = make_total_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2,
+        weights={"mm": 1.0, "cyc": 1.0, "rp": 1.0, "sym": 1.0},
+        return_components=True,
+    )
+    # Hermitian coefficient vector all zeros → Ĥ = 0 → Û = I
+    h0 = jnp.zeros(f.dim, dtype=jnp.complex128)
+    params = [h0, h0]
+    comps = loss_fn(params, 5.0)
+    assert float(comps.L_cyc) < 1e-15
+    assert float(comps.L_RP) < 1e-15
+    assert float(comps.L_sym) < 1e-15
+    assert float(comps.L_MM) > 0.01
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
