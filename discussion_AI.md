@@ -10,7 +10,7 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
-## Implementation-14: Phase 1 Steps 2–5 — LoopSystem, Neural Model, D=2 Training (Apr 10, 2026)
+## Implementation-14: Phase 1 Steps 2–5 — LoopSystem, Neural Model, D=2 Training (Apr 12, 2026)
 
 ### What was built
 
@@ -66,7 +66,7 @@ All 16 pre-existing + 11 MM + 18 QCD₂ pytest tests still pass.
 
 ---
 
-## Implementation-13: Phase 1 Step 1 — MM Equation for Lattice 2D YM (Apr 9, 2026)
+## Implementation-13: Phase 1 Step 1 — MM Equation for Lattice 2D YM (Apr 12, 2026)
 
 ### Goal
 
@@ -120,7 +120,7 @@ Phase 1 Step 2: implement `LoopSystem` (precomputed loop enumeration + MM-equati
 
 ---
 
-## Implementation-12: Phase 0 — QCD₂ Master Field Infrastructure (Apr 9, 2026)
+## Implementation-12: Phase 0 — QCD₂ Master Field Infrastructure (Apr 12, 2026)
 
 ### What was built
 
@@ -196,7 +196,7 @@ Alternatively (Direction A): parametrize W[C] as a neural network with built-in 
 
 ---
 
-## Discussion-11: Revised Plan — Original Directions Only (Apr 9, 2026)
+## Discussion-11: Revised Plan — Original Directions Only (Apr 12, 2026)
 
 ### What's been done (by others — don't repeat)
 
@@ -269,7 +269,7 @@ If Direction A or B succeeds in D=4: first explicit construction of the large-N 
 
 ---
 
-## Discussion-10: Gross-Witten Model — Unitary Loop Equations (Apr 9, 2026)
+## Discussion-10: Gross-Witten Model — Unitary Loop Equations (Apr 12, 2026)
 
 ### The problem
 
