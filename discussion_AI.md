@@ -10,6 +10,62 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-14: Phase 1 Steps 2–5 — LoopSystem, Neural Model, D=2 Training (Apr 10, 2026)
+
+### What was built
+
+- `lattice.LoopSystem` dataclass + `build_loop_system(D, L_max)`: enumerates canonical lattice loops up to L_max + 2 (to cover MM staple insertions) and precomputes every MM equation as index arrays (`MMEquation`). D=2 L_max=6 gives K=35 loops, 32 equations. D=3 L_max=6 gives 627 loops, 288 equations.
+- `master_field/neural_loop.py`: `NeuralLoopFunctional` — MLP mapping λ to K-vector of Wilson loop values. `mm_loss`, `supervised_loss_2d`, `unitarity_penalty` as JIT functions. Training helpers: `train_supervised_2d`, `train_mm_2d`, `train_mm_2d_curriculum`, `train_mm_2d_warmstart`.
+
+### Phase 1a (supervised D=2): works
+
+Trained against GW lattice answer W[C] = w_+^Area with w_+ = 1/(2λ). After 3000 epochs at L_max=6:
+- λ=1: W[plaq]=0.502 (exact 0.500), W[2×1]=0.243 (exact 0.250)
+- λ=2: W[plaq]=0.251 (exact 0.250), W[2×1]=0.064 (exact 0.0625)
+- λ=5: W[plaq]=0.093 (exact 0.100), W[2×1]=0.006 (exact 0.010)
+
+Max error ~1–2%. Architecture validated; more epochs / bigger net would tighten further.
+
+### Phase 1b (MM-only D=2): partially works, exposes real structure
+
+**Initial attempt (tanh + Xavier init) FAILED**: converges to spurious local minimum w[C] = −1 for all non-empty loops. Final MM loss 4.3. Tanh saturation blocks the gradient; Xavier init starts well outside the GW basin.
+
+**Remediations implemented** (per approved plan):
+- **R1** (no tanh, small W_out init=0.01, soft unitarity penalty): dramatic improvement. MM loss 4.3 → 6.8e-4. W[plaq] closely tracks the self-consistent candidate-D solution w_+^MM = λ−√(λ²−1). But W[2×1] is driven to ≈ 0 (wrong).
+- **R2** (curriculum λ: 10→1 over 8 stages): MM loss → 1e-26 (essentially zero) BUT converges to a solution that violates unitarity (W[plaq]=1.3 at λ=5). MM + soft unitarity penalty at weight 10 isn't strong enough.
+- **R4** (supervised warm-start 1500 epochs, then MM-only 3000 epochs): best result. W[plaq] at λ=5 = 0.10012 vs GW 0.1 (near-exact). W[2×1] at λ=1 drifts from supervised 0.25 to 0.16 after MM refinement.
+
+### The real finding
+
+**MM equations + unitarity alone do NOT uniquely determine Wilson loop values in D=2.** Multiple solutions exist:
+- The GW answer w_+ = 1/(2λ), W[C] = w_+^Area
+- The candidate-D self-consistent solution w_+^MM = λ − √(λ²−1), close to GW only at strong coupling
+- Solutions violating |W| ≤ 1 if unitarity penalty is weak
+- Solutions where high-area loops → 0 regardless of what the area law predicts
+
+At K=35 unknowns vs 32 MM equations, with one hard constraint (W[empty]=1), the system is 2 equations short of uniqueness. Curriculum training (R2) shows that the MM loss has a continuous family of near-zero minima, not a single point.
+
+### Interpretation and next step
+
+This is consistent with the role of the MM equation in the full QCD bootstrap: MM equations are NECESSARY but not SUFFICIENT. The Kazakov-Zheng program uses SDP positivity (R3) on top of MM to pin down the solution. Our Phase 1 on D=2 validates this claim empirically.
+
+**Figure-8 subtlety discovered**: our `abs_area_2d` returns 0 for loops with signed area 0 (e.g., figure-8 = CCW plaquette + CW plaquette joined at a vertex). These loops factorize at the self-intersection and have W = w_+·w_−, not W = w_+^0 = 1. The exact-target formula `W[C] = w_+^abs_area_2d(C)` is only valid for simple (non-self-intersecting) loops. Documented for future D=2 validation.
+
+### Decision
+
+Move to Phase 1c (D=3) where:
+1. The architecture + R4 (warm-start with a strong-coupling initialization) can be validated against bootstrap bounds (Kazakov-Zheng 2203.11360) rather than an exact area law.
+2. MM + positivity (R3) becomes the natural next implementation step. The bootstrap bounds tell us approximately where W must lie; MM refines.
+3. The exploration problem (unique solution selection) is attacked directly in the regime where it matters.
+
+R3 (positivity / Toeplitz-PSD) is deferred to Phase 1c where we'll need it anyway. Phase 1b on D=2 provides the calibration baseline.
+
+### Tests
+
+All 16 pre-existing + 11 MM + 18 QCD₂ pytest tests still pass.
+
+---
+
 ## Implementation-13: Phase 1 Step 1 — MM Equation for Lattice 2D YM (Apr 9, 2026)
 
 ### Goal

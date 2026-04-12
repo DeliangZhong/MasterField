@@ -13,6 +13,7 @@ Equivalences:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from itertools import product
 
 # ═══════════════════════════════════════════════════════════
@@ -297,3 +298,141 @@ def self_intersection_splits(
                 c2_reduced = cyclic_canonical(reduce_backtracks(c2))
                 splits.append((c1_reduced, c2_reduced))
     return splits
+
+
+# ═══════════════════════════════════════════════════════════
+# LoopSystem: precomputed loop enumeration + MM equation tables
+# ═══════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True)
+class MMEquation:
+    """Precomputed Makeenko-Migdal equation as index arrays.
+
+    Associates the equation for loop[loop_idx] at edge edge_idx to:
+      LHS = (1/λ) Σ_{k in lhs_loop_indices} w[k]
+      RHS = rhs_self_coeff · w[loop_idx]
+          + Σ_{(i,j) in rhs_split_pairs} w[i] · w[j]
+
+    Candidate D (the working MM form from Phase 1 Step 1):
+      rhs_self_coeff = 2.0
+      lhs_loop_indices = staple-replaced-loop indices
+      rhs_split_pairs = non-trivial self-intersection splits (usually empty for simple loops)
+    """
+
+    loop_idx: int
+    edge_idx: int
+    lhs_loop_indices: tuple[int, ...]
+    rhs_self_coeff: float
+    rhs_split_pairs: tuple[tuple[int, int], ...]
+
+
+@dataclass
+class LoopSystem:
+    """Precomputed lattice loop enumeration + MM-equation tables.
+
+    Build once per (D, L_max, form). The neural network trains against
+    `mm_equations` using the precomputed index arrays.
+
+    The `loops` list extends to L_max + 2 so that every MM equation's LHS
+    staple-insertion is still in the table. MM equations are only generated
+    for loops of length ≤ L_max (the loops of length L_max + 2 are "output
+    only" — they feed into MM equations for shorter loops but have no
+    MM constraints of their own).
+    """
+
+    D: int
+    L_max: int
+    loops: list[tuple[int, ...]]
+    loop_to_idx: dict[tuple[int, ...], int] = field(default_factory=dict)
+    mm_equations: list[MMEquation] = field(default_factory=list)
+    areas: dict[int, int] | None = None
+
+    @property
+    def K(self) -> int:
+        """Number of distinct loops in the table."""
+        return len(self.loops)
+
+    @property
+    def empty_idx(self) -> int:
+        """Index of the empty loop (W = 1 by normalization)."""
+        return self.loop_to_idx[()]
+
+
+def build_loop_system(D: int, L_max: int, mm_form: str = "D") -> LoopSystem:
+    """Enumerate loops up to L_max + 2 and precompute MM equations for loops up to L_max.
+
+    mm_form: key in the candidate catalog (default "D" = the working form from Phase 1 Step 1).
+    """
+    from mm_equations import _candidate_catalog  # avoid circular import at module load
+
+    # Enumerate loops up to L_max + 2 (plus the empty loop at index 0)
+    raw_loops = enumerate_closed_loops(D, L_max + 2)
+    loops: list[tuple[int, ...]] = [()]  # empty loop reserved at index 0
+    for w in raw_loops:
+        loops.append(w)
+
+    loop_to_idx: dict[tuple[int, ...], int] = {}
+    for i, w in enumerate(loops):
+        loop_to_idx[w] = i
+
+    # For D=2, compute areas (absolute)
+    areas: dict[int, int] | None = None
+    if D == 2:
+        areas = {}
+        for i, w in enumerate(loops):
+            if not w:
+                areas[i] = 0
+            else:
+                try:
+                    areas[i] = abs_area_2d(w)
+                except ValueError:
+                    areas[i] = 0
+
+    # Build MM equations for loops up to length L_max
+    # Currently only candidate D is implemented as an equation (the scan candidates
+    # live in mm_equations.py as residual functions; here we materialize the index tables).
+    assert mm_form == "D", f"Only MM form 'D' is supported so far, got {mm_form!r}"
+
+    mm_eqs: list[MMEquation] = []
+    for loop_idx, word in enumerate(loops):
+        if not word or len(word) > L_max:
+            continue
+        for edge_idx in range(len(word)):
+            # LHS: staple insertions
+            insertions = plaquette_insertions(word, edge_idx, D)
+            lhs_indices: list[int] = []
+            for ins in insertions:
+                canon = cyclic_canonical(reduce_backtracks(ins))
+                if canon in loop_to_idx:
+                    lhs_indices.append(loop_to_idx[canon])
+                # else: truncation boundary — drop the contribution
+            # RHS: self-coefficient + splits
+            rhs_coeff = 2.0  # candidate D
+            splits = self_intersection_splits(word) if D == 2 else []
+            rhs_split_pairs: list[tuple[int, int]] = []
+            for c1, c2 in splits:
+                if c1 in loop_to_idx and c2 in loop_to_idx:
+                    rhs_split_pairs.append((loop_to_idx[c1], loop_to_idx[c2]))
+
+            mm_eqs.append(
+                MMEquation(
+                    loop_idx=loop_idx,
+                    edge_idx=edge_idx,
+                    lhs_loop_indices=tuple(lhs_indices),
+                    rhs_self_coeff=rhs_coeff,
+                    rhs_split_pairs=tuple(rhs_split_pairs),
+                )
+            )
+
+    # Suppress unused import warning from IDE: catalog may be used in future mm_forms
+    _ = _candidate_catalog
+
+    return LoopSystem(
+        D=D,
+        L_max=L_max,
+        loops=loops,
+        loop_to_idx=loop_to_idx,
+        mm_equations=mm_eqs,
+        areas=areas,
+    )
