@@ -212,6 +212,12 @@ def optimize_tek(
     @partial(jit, static_argnums=())
     def _step(ps: list[jnp.ndarray], state):
         grads = grad_fn(ps)
+        # JAX convention for real loss of complex z: grad returns
+        # ∂f/∂x − i·∂f/∂y = conj(descent direction). For gradient descent via
+        # `params − lr · update` we need `update = conj(grad_JAX)`.
+        grads = [jnp.conj(g) for g in grads]
+        # Project onto the Hermitian tangent space (we constrain params = params†).
+        grads = [hermitianize(g) for g in grads]
         updates, new_state = optimizer.update(grads, state, ps)
         new_ps = optax.apply_updates(ps, updates)
         new_ps = [hermitianize(p) for p in new_ps]

@@ -10,6 +10,73 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-19: Phase B — classical saddle found; master-field requires Haar entropy (Apr 12, 2026)
+
+### Result
+
+Phase B ran the direct-optimization TEK program on the untwisted Eguchi-Kawai action (z = 1) at D=2, N=49 over a coupling schedule λ ∈ {20, 10, 5, 2, 1, 0.5, 0.3} with BOTH orientation and full U(N) ansätze. After a critical gradient-sign fix (see below), both ansätze converged cleanly to the **classical TEK vacuum** at every λ:
+
+| ansatz | plaq | |P_1| | |P_2| | cs_order | |grad|/N |
+|---|---|---|---|---|---|
+| orientation | +1.0000 | 0 | 0 | 10⁻³² | 10⁻¹¹ |
+| full | +1.0000 | 1.0 | 1.0 | 2.00 | 10⁻¹¹ |
+
+Orientation converges to U_1 = U_2 = Γ (center-symmetric traceless). Full converges to U_1 = U_2 = I (maximally center-symmetry-broken). Both give plaquette = 1 regardless of coupling.
+
+### Interpretation (R6, NEW)
+
+The Monte-Carlo answer for untwisted EK D=2 at finite λ has plaquette that depends on λ: strong coupling → 0, weak coupling → 1 with Z_N breaking. Our result (plaq = 1 at every λ) does not reproduce this.
+
+The physics: at N=∞ the path integral saddle is determined by δS_eff/δU = 0 where S_eff = S_classical − log|Jacobian of dU|. The Haar entropy (−log|J|) adds an eigenvalue-repulsion pressure that spreads eigenvalues away from the classical vacuum and makes the saddle coupling-dependent. Direct minimization of S_classical alone finds only the classical vacuum (the "zero-entropy" configuration).
+
+The orientation ansatz DOES use a Haar-measure argument (KKS-invariant measure on the coadjoint orbit is constant), which is why its S_eff restricted to the orbit equals S_classical. But the classical minimum of S_classical ON the orbit is still the trivial U_μ = Γ (the orbit's most symmetric configuration). The coadjoint orbit contains the classical TEK saddle U_2 = Q_L ⊗ P_L (for the TWISTED case — different from Phase B's untwisted test), but both U_μ = Γ and the clock-shift pair give plaq = 1 at untwisted z=1.
+
+The full ansatz has no measure restriction at all, so it finds the global classical minimum (all U_μ = I, plaq = 1).
+
+Neither sees the quantum fluctuations encoded in the Haar measure. This is R6: the loss function needs a Haar-entropy term (or switch to MM loop-equation residuals, à la Phase 1 Direction A) to recover coupling-dependent master-field observables.
+
+### Gradient-sign bug discovered and fixed
+
+Unrelated to the physics, Phase B surfaced a JAX convention gotcha. For a real loss f of complex-matrix parameter H, `jax.grad(f)(H)` returns ∂f/∂x − i·∂f/∂y (note minus sign on imaginary derivative), which is the **conjugate** of the physical descent direction ∂f/∂x + i·∂f/∂y. Feeding the raw JAX gradient to optax via `params − lr · grad` updates in the wrong direction.
+
+Fixed in `optimize.py::_step`: conjugate the gradient before hermitianizing and passing to the optimizer. Verified by line search against direct loss evaluation: `-lr·conj(grad)` decreases loss, `-lr·grad` increases it. Confirmed also on a trivial |z|² test (JAX returns 2−2j at z=1+1j where the correct descent direction is 2+2j = 2z).
+
+After the fix:
+- At H=0 (untwisted): |grad|/N = 0, plaquette = 1, optimizer correctly stays at the classical vacuum.
+- At random init: |grad|/N monotonically decreases to 10⁻¹¹ over the schedule, plaquette converges to 1.
+- All 89 pytest tests continue to pass.
+
+### Deliverables
+
+- `tek_master_field/phase_b.py`: standalone Phase B experiment script.
+- `results/phase_b_summary.json`: per-ansatz, per-λ observables (plaquette, P_μ, center-symmetry order, eigenvalue histogram, loss, grad norm, elapsed time).
+- `optimize.py::_step`: conj + hermitianize gradient projection.
+
+### What Phase B tells us about the Phase 3 program
+
+The scaffolding is **technically correct**: both ansätze represent the intended parameter spaces, the gradient converges, the tests pass. But the LOSS FUNCTION is physically incomplete — minimizing classical S gives the classical vacuum, not the master field.
+
+Three options for next steps:
+
+1. **Add Haar entropy to the loss.** Compute log|J| of the exp(iH) parametrization (related to sinh(ad·H/2) / (ad·H/2) determinant) or the Jacobian of the coadjoint orbit inclusion. This is a nontrivial physics derivation but most direct.
+2. **Switch to Makeenko-Migdal loop-equation loss** (Phase 1 Direction A) applied to TEK. Works for lattice loops; proven successful at D=2 in Phase 1b.
+3. **SDP bootstrap with continuation** (Phase 1 Direction C). Hard constraints from Kazakov-Zheng bounds + neural parametrization.
+
+Phase B has delivered a CLEAN, REPRODUCIBLE FAILURE per the original plan gate. The next concrete step is to pick one of the above three directions and formulate the new loss.
+
+### Phase 3 risk status (updated)
+
+| Risk | Status |
+|------|--------|
+| R1 D=4 k=1 center-symmetry break | deferred |
+| R2 rectangular Wilson loop phase | resolved (Impl-16) |
+| R3 sign conventions | resolved (scaffolding) |
+| R4 orientation-only sufficiency | resolved (Impl-18) — full ansatz available |
+| R5 Γ spectrum mismatch | resolved (Impl-17) |
+| R6 classical action alone misses master field | **NEW, unresolved** — requires Haar entropy or switch to MM/SDP |
+
+---
+
 ## Implementation-18: R4 resolved — full U(N) ansatz as alternative to orientation-only (Apr 12, 2026)
 
 ### What was added

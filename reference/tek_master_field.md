@@ -179,6 +179,30 @@ exact TEK structure.
 eigenvalues are L-th roots L-fold-degenerate. 78/78 pytest tests pass after
 the change.
 
+## R6 (Open): Classical action alone misses the master field
+
+Phase B (untwisted EK, D=2, N=49, both ansätze) empirically confirmed a
+physics concern flagged during scaffolding. Direct minimization of the
+classical TEK action S converges to the **classical vacuum** at EVERY λ —
+plaquette = 1 regardless of coupling — for both orientation and full U(N)
+ansätze. Monte-Carlo at finite λ gives coupling-dependent plaquettes that
+our approach does not reproduce.
+
+**Root cause.** At N = ∞ the path integral saddle is defined by
+`δ S_eff / δ U = 0`, where `S_eff = S_classical − log|J|` and J is the
+Jacobian of the parametrization. The Haar entropy `−log|J|` adds an
+eigenvalue-repulsion pressure that makes the saddle coupling-dependent.
+Direct minimization of S_classical alone finds only the zero-entropy
+classical vacuum.
+
+**Mitigation options.**
+
+1. Add an explicit Haar-entropy term to the loss — nontrivial but most direct.
+2. Switch to Makeenko-Migdal loop-equation residuals (Phase 1 Direction A applied to TEK).
+3. Hybrid bootstrap-ML with SDP bounds (Phase 1 Direction C).
+
+See `phase_b.py` and `results/phase_b_summary.json` for the Phase B data.
+
 ## Open Question: Classical vs Quantum Saddle
 
 The ansatz above uses a Haar measure that, restricted to the orientation
