@@ -10,6 +10,107 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-25: Phase 4 — Cuntz-Fock Coefficient Bootstrap (Apr 12, 2026)
+
+### The idea
+
+Invert Gopakumar-Gross (1994). GG showed the master field for any large-N
+matrix model is an operator Û in a Cuntz-Fock space, with coefficients
+determined by planar connected Green's functions. GG viewed the
+parametrization as a limitation: "to write Û explicitly requires knowing
+all connected Green's functions, tantamount to solving the theory."
+
+We make the Cuntz-Fock coefficients the UNKNOWNS and let the constraints
+(unitarity + MM loop equations) determine them. Positivity — the hardest
+constraint in the Kazakov-Zheng SDP bootstrap — is automatic because any
+operator in a Fock space gives a PSD correlation kernel by construction.
+
+### Why this differs from Phases 0-3
+
+| Phase | Parametrization | Failure |
+|---|---|---|
+| 0 (QCD₂ single-α Gaussian) | one real coefficient | plaquette OK, larger loops wrong |
+| 1b (neural W[C]) | neural loop functional | MM alone underdetermined (Impl-14) |
+| 3 (TEK finite-N matrices) | N×N unitary matrices | R6 classical-saddle; R9 multi-matrix correlations (W[2×2] off by 900×) |
+| 4 (Cuntz-Fock coefficients) | O(d_L) polynomial coefficients | **untested — the proposal** |
+
+Works at N = ∞ directly. No Haar measure (R6 disappears). No center
+symmetry to break (R8 disappears). Positivity automatic.
+
+### Parametrization (Phase 4b — polynomial)
+
+2D creation operators â†_1, â†_{-1}, â†_2, â†_{-2}, … â†_D, â†_{-D} on a
+Cuntz-Fock space truncated at word length L. Define 2D labels so â†_μ and
+â†_{-μ} are independent — negative direction is creation along reversed
+edge, not annihilation of forward edge.
+
+Û_μ = Σ_{|w|≤L} c^{(+)}_{μ,w} (â†_{w_1} ⋯ â†_{w_k})
+    + Σ_{|v|≥1, |v|≤L} c^{(-)}_{μ,v} (â_{v_k} ⋯ â_{v_1})
+
+Total complex coefficients per matrix: 2 d_L − 1 where
+d_L = (n^{L+1} − 1)/(n − 1) with n = 2D.
+
+Orientation reversal symmetry Û_{-μ} = Û_μ† → D independent operators.
+
+| D | n | L | d_L | coeffs/matrix | total real params |
+|---|---|---|-----|---------------|-------------------|
+| 1 (GW) | 1 | 6 | 7 | 13 complex | 26 |
+| 2 (QCD₂) | 4 | 3 | 85 | 169 complex | 676 |
+| 3 | 6 | 2 | 43 | 85 complex | 510 |
+| 4 (QCD) | 8 | 2 | 73 | 145 complex | 1160 |
+
+Compare Phase 3: TEK at N=49 had 2D·N² = 9604 parameters. Phase 4 is
+two orders of magnitude smaller.
+
+### Loss
+
+L_total = w_unit · L_unit + w_MM · L_MM [+ w_sup · L_sup]
+
+L_unit = Σ_μ ‖Û_μ Û_μ† − I‖²_F (unitarity as operator equation)
+
+L_MM = Σ equations |residual|²  (Kazakov-Zheng candidate D from
+master_field/lattice.LoopSystem and master_field/mm_equations.mm_residual_staple;
+W[C] = ⟨Ω|Û_{μ_1} ⋯ Û_{μ_k}|Ω⟩ computed as e_0ᵀ product · e_0 via sweep)
+
+L_sup (optional) = Σ_C |W[C] − W_GW[C]|²  (enable only if underdetermined)
+
+Mirror tek_master_field's optax Adam + warmup_cosine + conj-hermitianize
+pipeline. Complex coefficients c ∈ ℂ^{…}; gradients projected by
+conjugation per Impl-19 JAX fix.
+
+### Priority order
+
+1. Cuntz-Fock infrastructure (JAX rebuild of master_field/cuntz_fock.py).
+2. **Phase A — Gross-Witten** (D=1, n=1 actually n=2 for u/u†, L=6).
+   Loss = unitarity + GW moment recursion.
+   Gate: w_1 = 1/(2λ) at λ≥1 to <10⁻³, w_2 = 0 to <10⁻³.
+3. **Phase B — QCD₂** (D=2, L=3, d=85). THE CRITICAL TEST. Loss =
+   unitarity + MM. Gate: W[□] = 1/(2λ), W[2×1] = W[□]², W[2×2] = W[□]⁴
+   each to < 1% at λ=5. Phase 3 failed W[2×2] at 900×; a Phase 4 pass
+   is the key empirical result.
+4. **Phase C — D=3** (L=2, d=43). Compare to Kazakov-Zheng (2203.11360)
+   bootstrap bounds and published MC.
+5. **Phase D — D=4** (L=2, d=73). The target. First explicit SU(∞)
+   master-field construction for 4D lattice YM.
+
+### The one risk
+
+MM + unitarity might be underdetermined even with Fock structure (Phase 1b
+observed this for W[C] variables alone). If Phase B shows drift, fall back
+to the supervised anchor (proven in Phase 1b R4). If anchor still fails,
+additional physical principle needed (extremality, clustering, free
+entropy max). Phase B's outcome decides.
+
+### Deliverable
+
+Subfolder `cuntz_bootstrap/` with: fock.py, master_operator.py,
+unitarity.py, wilson_loops.py, mm_loss.py, optimize.py, train.py, plus
+phase_a_gw.py, phase_b_qcd2.py, phase_c_d3.py (stretch), phase_d_d4.py
+(stretch). Physics reference `reference/cuntz_bootstrap.md`. Cluster
+script `cluster/submit_cuntz.pbs`.
+
+---
+
 ## Discussion-24: Phase 3 retrospective — session summary and handoff (Apr 12, 2026)
 
 Summary of what was built, learned, and what remains — intended as a handoff
