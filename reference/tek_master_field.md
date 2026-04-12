@@ -88,22 +88,66 @@ and the corresponding plaquette value is W[□] = 1. This is the CLASSICAL TEK
 vacuum. Whether it coincides with the quantum master field at a given coupling
 is a coupling- and ansatz-dependent question (see "Open Question" below).
 
-## Rectangular Wilson Loop — Twist Phase (R2, GATED)
+## Rectangular Wilson Loop — Twist Phase (R2, RESOLVED)
 
 For a rectangle of size R × T in the (μ, ν) plane on the single-site TEK lattice,
-the Wilson loop picks up a twist phase from the Heisenberg non-commutativity:
+the Wilson loop is
 
-    W[R × T]_{μν} = Tr[ f(R, T, z_μν) · U_μ^R · U_ν^T · U_μ^{-R} · U_ν^{-T} ] / N
+    W[R × T]_{μν} = Re[ z_μν^{R·T} · Tr(U_μ^R · U_ν^T · U_μ^{-R} · U_ν^{-T}) ] / N
 
-The correct phase f(R, T, z) is NOT simply z^{R·T}. It is derived in:
+The twist phase **z_μν^{R·T}** comes from the product of the elementary
+plaquette twist factors Z_μν(n) over the R·T plaquettes filling the rectangle.
+On single-site TEK all elementary plaquettes share the same factor
+z_μν = Ẑ_μν = exp(2πi n_μν / N), so the product is z_μν^{R·T}.
 
-- González-Arroyo & Okawa, Phys. Rev. D 27 (1983) 2397, eq. (3.5).
-- García Pérez, González-Arroyo, Okawa, arXiv:1708.00841 (2017) — Wilson loops
-  to order g⁴ on twisted lattices and reduced models.
+**Reference:** García Pérez, González-Arroyo, Okawa, arXiv:1708.00841, eq. (2.4):
+> W_{R,T}(b, N, L, n_μν) = (1/N) Z(R,T) ⟨Tr(U(R,T))⟩
+> where Z(R,T) is the product of the Z_μν(n) factors for all plaquettes which
+> fill up the rectangle.
 
-**Status**: Not yet transcribed in this repo. `observables.wilson_loop_rectangular`
-raises `NotImplementedError` until the formula is copied in (and tested against
-the strong-coupling product law `W[R×T] ≈ W[□]^{RT}` as a partial check).
+For TEK (L = 1 in that paper's notation for the single-site reduction), every
+elementary plaquette has the same factor, giving Z(R,T) = z_μν^{R·T}.
+
+**Verification.** We construct the TEK classical saddle explicitly from L-th
+dimensional clock-shift twist eaters P_L, Q_L with
+
+    U_1 = P_L ⊗ I_L,   U_2 = Q_L ⊗ P_L   (N = L² matrices)
+
+which satisfy U_1 U_2 = ω_L^{-1} U_2 U_1 with ω_L = exp(2πi / L) = z_12. At
+this saddle Tr(U_1^R U_2^T U_1^{-R} U_2^{-T})/N = z_12^{-R·T}, and our formula
+gives W[R×T] = Re[z_12^{R·T} · z_12^{-R·T}] = 1 for every R, T — verified
+numerically for L ∈ {3, 5, 7} and R, T ≤ 4 (test_tek.py::test_rectangular_at_classical_saddle_equals_one).
+
+## Ansatz Caveat (R5, NEW)
+
+The TEK classical saddle constructed via twist eaters has **eigenvalues equal
+to the L-th roots of unity, each with multiplicity L** (because Γ_μ = P_L ⊗ I_L
+has only L distinct eigenvalues, each L-fold degenerate).
+
+Our master-field ansatz uses Γ = diag(1, ω_N, ω_N², …, ω_N^{N−1}) with ω_N =
+exp(2πi/N) — i.e., **eigenvalues equal to the N-th roots of unity, all
+distinct**. For N = L² > L, these are different spectra, and no unitary
+conjugation Ω Γ Ω† can take one to the other (spectra are conjugation
+invariants).
+
+**Implication.** The orientation-only ansatz Ω Γ Ω† cannot reach the TEK
+classical saddle at finite N. What it reaches instead is the optimum of the
+action over a specific submanifold of U(N)^{D−1} that is NOT the TEK
+saddle orbit.
+
+In the continuum limit N → ∞, the L-th roots (L-fold degenerate) and the N-th
+roots (non-degenerate) both become uniform on the unit circle, so the
+distinction disappears. At finite N the ansatz is at best an approximation to
+the true TEK saddle.
+
+**Fix (deferred).** Replace Γ with `kron(clock_L, I_L)` (eigenvalues = L-th
+roots, L-fold degenerate). This preserves the Haar-measure argument (the
+coadjoint orbit is still constant-measure) and actually matches the TEK saddle
+structure. The orbit dimension becomes N² − L³ < N², reducing the free
+parameters and encoding the center-symmetric TEK structure explicitly.
+
+Phase B will reveal whether this matters empirically; if yes, we swap
+`build_clock_matrix(N)` for an L-aware version before Phase C.
 
 ## Open Question: Classical vs Quantum Saddle
 

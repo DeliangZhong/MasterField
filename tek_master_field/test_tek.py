@@ -222,20 +222,148 @@ def test_polyakov_loop_at_H0_is_zero():
 
 
 # ═══════════════════════════════════════════════════════════════
-# Unit: wilson_loop_rectangular is gated (R2)
+# Unit: wilson_loop_rectangular (R2 resolved, f(R,T) = R·T)
 # ═══════════════════════════════════════════════════════════════
 
 
 @pytest.mark.unit
-def test_rectangular_wilson_loop_raises():
-    """R2 is gated: rectangular loops require the twist phase formula from
-    arXiv:1708.00841 or PRD 27 (1983) eq. (3.5). Must raise until transcribed."""
+def test_rectangular_reduces_to_plaquette_at_R_T_1():
+    """W[1×1]_{μν} must equal wilson_loop_plaquette(μ, ν)."""
+    D, N, L = 2, 49, 7
+    Gamma = build_clock_matrix(N)
+    z = build_twist(D, N, L, k=1)
+    key = random.PRNGKey(13)
+    H_list = init_H_list_random(D, N, key, scale=0.2)
+    U = build_link_matrices(H_list, Gamma)
+
+    a = float(wilson_loop_rectangular(U, z, R=1, T=1, mu=0, nu=1))
+    b = float(wilson_loop_plaquette(U, 0, 1, z))
+    assert abs(a - b) < 1e-12, f"W[1×1] ({a}) ≠ plaquette ({b})"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("R,T", [(1, 1), (1, 2), (2, 1), (2, 2), (3, 2), (2, 3), (3, 3)])
+def test_rectangular_at_H0_equals_Re_z_to_RT(R: int, T: int):
+    """At H=0 all U_μ = Γ (diagonal), so the bare trace part = I/N = 1 and
+    W[R×T] = Re(z_μν^{R·T}). Directly validates the twist-phase formula."""
+    D, N, L, k = 2, 49, 7, 1
+    Gamma = build_clock_matrix(N)
+    z = build_twist(D, N, L, k=k)
+    H_list = init_H_list_zero(D, N)
+    U = build_link_matrices(H_list, Gamma)
+
+    computed = float(wilson_loop_rectangular(U, z, R, T, mu=0, nu=1))
+    expected = float(jnp.real(z[0, 1] ** (R * T)))
+    assert abs(computed - expected) < 1e-10, (
+        f"W[{R}×{T}] at H=0: computed={computed}, expected Re(z^{R*T})={expected}"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("N,L,k", [(9, 3, 1), (25, 5, 1), (49, 7, 1), (49, 7, 3)])
+def test_rectangular_twist_phase_at_H0_various_twists(N: int, L: int, k: int):
+    """Check W[2×3] = Re(z^6) at H=0 for several flux values."""
+    D = 2
+    Gamma = build_clock_matrix(N)
+    z = build_twist(D, N, L, k=k)
+    H_list = init_H_list_zero(D, N)
+    U = build_link_matrices(H_list, Gamma)
+
+    R, T = 2, 3
+    computed = float(wilson_loop_rectangular(U, z, R, T))
+    expected = float(jnp.real(z[0, 1] ** (R * T)))
+    assert abs(computed - expected) < 1e-10
+
+
+@pytest.mark.unit
+def test_rectangular_invalid_args_raise():
     Gamma = build_clock_matrix(9)
     z = build_twist(D=2, N=9, L=3, k=1)
     H_list = init_H_list_zero(D=2, N=9)
     U = build_link_matrices(H_list, Gamma)
-    with pytest.raises(NotImplementedError, match="twist phase"):
-        wilson_loop_rectangular(U, z, R=2, T=1)
+    with pytest.raises(ValueError, match="mu and nu must differ"):
+        wilson_loop_rectangular(U, z, R=1, T=1, mu=0, nu=0)
+    with pytest.raises(ValueError, match="positive"):
+        wilson_loop_rectangular(U, z, R=0, T=1)
+    with pytest.raises(ValueError, match="positive"):
+        wilson_loop_rectangular(U, z, R=1, T=-1)
+
+
+def _build_tek_classical_saddle(L: int) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Construct the TEK classical saddle for N = L² with symmetric twist k=1:
+        P_L = L×L clock, Q_L = L×L shift
+        U_1 = P_L ⊗ I_L,  U_2 = Q_L ⊗ P_L
+        These satisfy  U_1 U_2 = ω_L^{-1} U_2 U_1  with  ω_L = exp(2πi/L).
+    In our convention z_12 = ω_L, so U_1 U_2 = z_12^{-1} U_2 U_1 ⇒ classical TEK
+    saddle (plaquette = 1 by construction).
+
+    Returns (U_1, U_2, z_12).
+    """
+    N = L * L
+    jk = jnp.arange(L)
+    P = jnp.diag(jnp.exp(2j * jnp.pi * jk / L)).astype(jnp.complex128)
+    Q = jnp.roll(jnp.eye(L, dtype=jnp.complex128), shift=-1, axis=0)
+    I_L = jnp.eye(L, dtype=jnp.complex128)
+    U1 = jnp.kron(P, I_L)  # (N, N)
+    U2 = jnp.kron(Q, P)    # (N, N)
+    z12 = jnp.exp(2j * jnp.pi / L)
+    assert U1.shape == (N, N) and U2.shape == (N, N)
+    return U1, U2, z12
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("L", [3, 5, 7])
+def test_tek_classical_saddle_heisenberg_relation(L: int):
+    """Verify U_1 U_2 = z_12^{-1} U_2 U_1 exactly at the TEK classical saddle."""
+    U1, U2, z12 = _build_tek_classical_saddle(L)
+    lhs = U1 @ U2
+    rhs = jnp.conj(z12) * (U2 @ U1)  # z^{-1} = conj(z) on unit circle
+    err = float(jnp.linalg.norm(lhs - rhs))
+    assert err < 1e-12, f"Heisenberg relation violated at L={L}: err={err:.3e}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("L,R,T", [(3, 1, 1), (3, 2, 1), (3, 1, 3), (3, 2, 3),
+                                    (5, 1, 1), (5, 2, 2), (5, 3, 2), (5, 4, 3),
+                                    (7, 2, 2), (7, 3, 3)])
+def test_rectangular_at_classical_saddle_equals_one(L: int, R: int, T: int):
+    """KEY VERIFICATION: at the TEK classical saddle, W[R×T] = 1 exactly,
+    by construction of the twist phase z_12^{R·T}. This independently
+    confirms the formula from arXiv:1708.00841 eq. (2.4)."""
+    N = L * L
+    U1, U2, z12 = _build_tek_classical_saddle(L)
+    z = jnp.ones((2, 2), dtype=jnp.complex128)
+    z = z.at[0, 1].set(z12)
+    z = z.at[1, 0].set(jnp.conj(z12))
+    U = [U1, U2]
+
+    w = float(wilson_loop_rectangular(U, z, R, T, mu=0, nu=1))
+    assert abs(w - 1.0) < 1e-10, (
+        f"W[{R}×{T}] at TEK classical saddle (L={L}, N={N}): {w}, expected 1"
+    )
+
+
+@pytest.mark.unit
+def test_rectangular_symmetric_under_axis_swap_untwisted():
+    """Without twist (z=1), the Wilson loop of an R×T rectangle in (μ,ν) plane
+    should equal the loop of a T×R rectangle in (ν,μ) plane (geometric
+    rotation)."""
+    D, N, L = 2, 49, 7
+    Gamma = build_clock_matrix(N)
+    z = jnp.ones((D, D), dtype=jnp.complex128)  # untwisted
+    key = random.PRNGKey(5)
+    H_list = init_H_list_random(D, N, key, scale=0.1)
+    U = build_link_matrices(H_list, Gamma)
+
+    R, T = 2, 3
+    a = float(wilson_loop_rectangular(U, z, R, T, mu=0, nu=1))
+    # For the same rectangular shape viewed from the other side, R and T swap
+    # and (mu, nu) swap; the loop traces out the same SHAPE but with opposite
+    # orientation. In pure Tr(U_μ^R U_ν^T U_μ^{-R} U_ν^{-T}) without twist,
+    # this is the adjoint of the original — and Tr(A) + Tr(A†) = 2 Re Tr(A),
+    # so the real parts match.
+    b = float(wilson_loop_rectangular(U, z, T, R, mu=1, nu=0))
+    assert abs(a - b) < 1e-10, f"untwisted 2×3 at (0,1) = {a}, 3×2 at (1,0) = {b}"
 
 
 # ═══════════════════════════════════════════════════════════════

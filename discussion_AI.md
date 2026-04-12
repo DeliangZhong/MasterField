@@ -10,6 +10,43 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-16: R2 resolved — rectangular Wilson loop twist phase (Apr 12, 2026)
+
+### Result
+
+`observables.wilson_loop_rectangular` is now implemented and verified. The twist phase for an R×T rectangular Wilson loop in the (μ,ν) plane on single-site TEK is **z_μν^{R·T}**:
+
+    W[R×T]_{μν} = Re[ z_μν^{R·T} · Tr(U_μ^R U_ν^T U_μ^{-R} U_ν^{-T}) ] / N
+
+### Source
+
+García Pérez, González-Arroyo, Okawa, arXiv:1708.00841 eq. (2.4): "W_{R,T}(b, N, L, n_μν) = (1/N) Z(R,T) ⟨Tr(U(R,T))⟩, where Z(R,T) is the product of the Z_μν(n) factors for all plaquettes which fill up the rectangle." For single-site TEK (their L=1), every elementary plaquette has the same twist factor z_μν = Ẑ_μν = exp(2πi n_μν / N), giving Z(R,T) = z_μν^{R·T}. Consistent with arXiv:1212.3835 eq. (1.1) plaquette convention.
+
+### Verification
+
+Three independent tests:
+1. **R = T = 1 reduces to the plaquette.** Direct equality to `wilson_loop_plaquette` for random H, to 10⁻¹².
+2. **At H = 0** (all U_μ = Γ, diagonal, commuting): W[R×T] = Re(z_μν^{R·T}) exactly, to 10⁻¹⁰, across (R,T) ∈ {(1,1), (1,2), (2,1), (2,2), (3,2), (2,3), (3,3)} and N ∈ {9, 25, 49}, k ∈ {1, 3}.
+3. **TEK classical saddle** (the strongest check): construct U_1 = P_L ⊗ I_L, U_2 = Q_L ⊗ P_L from L×L clock-shift matrices. Verify U_1 U_2 = ω_L^{-1} U_2 U_1 (Heisenberg relation) to 10⁻¹² for L ∈ {3, 5, 7}. At this saddle W[R×T] = 1 exactly for every (R, T) tested (L ∈ {3,5,7}, R,T ≤ 4) to 10⁻¹⁰. This independently reproduces the arXiv:1708.00841 eq. (2.4) claim.
+
+65/65 pytest tests pass after R2 resolution (+26 new tests on top of Phase 3 scaffolding's 39).
+
+### New finding (R5)
+
+Building the TEK classical saddle explicitly revealed a subtle ansatz mismatch. The TEK twist eaters P_L ⊗ I_L have eigenvalues equal to the **L-th roots of unity, L-fold degenerate**. Our current Γ = diag(1, ω_N, …, ω_N^{N-1}) ansatz has eigenvalues equal to the **N-th roots of unity, all distinct**. These spectra differ (N = L² > L), and since spectra are conjugation invariants, no Ω Γ Ω† can reach the TEK classical saddle starting from our current Γ.
+
+At N → ∞ both spectra become uniform on the unit circle and the distinction vanishes. At finite N, our ansatz Ω Γ Ω† reaches a different saddle (the maximizer over a different submanifold), not the TEK classical saddle.
+
+**Fix is straightforward and deferred to Phase B** if Phase B shows pathological behavior: replace `build_clock_matrix(N)` with `kron(clock_L, I_L)`. The Haar-measure argument still holds (coadjoint orbit has constant measure) and the orientation parametrization matches the TEK structure explicitly. The orbit dimension drops from N² to N² − L³, encoding the TEK center-symmetric constraint.
+
+Documented in reference/tek_master_field.md §"Ansatz Caveat (R5)".
+
+### Phase C/D unblocked
+
+With R2 resolved, Phase C Wilson-loop comparisons against the lattice GW strong-coupling product law `W[R×T] ≈ (1/(2λ))^{R·T}` are now computable. Creutz ratios χ(R,R) for string tension become well-defined. Only R5 (ansatz choice) remains between the current scaffolding and full Phase C/D execution.
+
+---
+
 ## Discussion-15: Phase 3 — Direct Optimization of the TEK Master Field (Apr 12, 2026)
 
 ### Motivation

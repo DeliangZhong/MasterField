@@ -92,26 +92,43 @@ def wilson_loop_rectangular(
     mu: int = 0,
     nu: int = 1,
 ) -> jnp.ndarray:
-    """Rectangular R×T Wilson loop in the (μ,ν) plane.
+    """Rectangular R×T Wilson loop in the (μ,ν) plane on single-site TEK.
 
-    On a single-site TEK lattice, U_μ shifts by 1 lattice unit in direction μ,
-    so a naive single-site form is:
-        W_naive = Tr(U_μ^R U_ν^T U_μ^{-R} U_ν^{-T}) / N
+        W[R×T]_{μν} = Re[ z_μν^{R·T} · Tr(U_μ^R U_ν^T U_μ^{-R} U_ν^{-T}) ] / N
 
-    With the twist, the correct form picks up a twist phase f(R, T, z_μν) from
-    the non-commutativity of the twist eaters. The formula is in:
-        - García Pérez–González-Arroyo–Okawa, arXiv:1708.00841 (2017)
-        - González-Arroyo–Okawa, Phys. Rev. D 27 (1983) 2397, eq. (3.5)
+    The twist phase z_μν^{R·T} is the product of the elementary plaquette
+    twist factors Z_μν(n) over the R·T plaquettes filling the rectangle. On
+    single-site TEK all elementary plaquettes share the same factor z_μν = Ẑ_μν
+    = exp(2πi n_μν / N), so the product is z_μν^{R·T}.
 
-    DO NOT GUESS. Until the exact formula is transcribed and tested, this
-    function raises NotImplementedError. The plaquette case R=T=1 is handled
-    correctly by `wilson_loop_plaquette`.
+    Reference:
+        - García Pérez, González-Arroyo, Okawa, arXiv:1708.00841, eq. (2.4).
+          Z(R,T) = product of Z_μν(n) over plaquettes filling the rectangle.
+        - González-Arroyo, Okawa, arXiv:1212.3835, eq. (1.1) (plaquette case
+          with same z_μν convention).
+
+    Sanity: at R=T=1 this reduces to `wilson_loop_plaquette`. At H=0 (all
+    U_μ = Γ diagonal, commuting) the trace factor equals 1 and the loop
+    returns Re(z_μν^{R·T}).
     """
-    raise NotImplementedError(
-        f"wilson_loop_rectangular(R={R}, T={T}): twist phase f(R,T) not yet "
-        "transcribed from arXiv:1708.00841 or PRD 27 (1983) eq. (3.5). "
-        "Use wilson_loop_plaquette for R=T=1."
-    )
+    if mu == nu:
+        raise ValueError(f"mu and nu must differ; got mu=nu={mu}")
+    if R < 1 or T < 1:
+        raise ValueError(f"R and T must be positive integers; got R={R}, T={T}")
+    N = U[0].shape[0]
+    Umu = U[mu]
+    Unu = U[nu]
+    Umu_dag = jnp.conj(Umu.T)
+    Unu_dag = jnp.conj(Unu.T)
+
+    Umu_R = jnp.linalg.matrix_power(Umu, R)
+    Unu_T = jnp.linalg.matrix_power(Unu, T)
+    Umu_negR = jnp.linalg.matrix_power(Umu_dag, R)
+    Unu_negT = jnp.linalg.matrix_power(Unu_dag, T)
+
+    loop = Umu_R @ Unu_T @ Umu_negR @ Unu_negT
+    twist_phase = z[mu, nu] ** (R * T)
+    return jnp.real(twist_phase * jnp.trace(loop)) / N
 
 
 def creutz_ratio(
