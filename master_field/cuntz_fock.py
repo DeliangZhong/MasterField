@@ -251,6 +251,52 @@ class CuntzFockSpace:
             product = product @ operators[idx]
         return self.vev(product)
 
+    def build_unitary_gaussian(self, alpha: float, matrix_idx: int = 0) -> np.ndarray:
+        """Build Û_μ = exp(iα(â_μ + â_μ†)) via matrix exponential.
+
+        This is the axial-gauge Gaussian master field for 2D lattice Yang-Mills.
+        Unitary exactly on the infinite Fock space, approximately on truncation.
+        """
+        from scipy.linalg import expm
+
+        M_hat = self.x(matrix_idx)  # â + â†
+        return expm(1j * alpha * M_hat)
+
+    def wilson_loop_vev(
+        self,
+        operators: dict[int, np.ndarray],
+        word: tuple[int, ...],
+    ) -> complex:
+        """Compute W[C] = <Ω| Û_{μ_1} Û_{μ_2} ... Û_{μ_k} |Ω> for a lattice loop.
+
+        Args:
+            operators: dict mapping direction μ (1..D) to unitary operator Û_μ.
+                Negative indices are handled by taking conjugate transpose.
+            word: tuple of signed step indices. μ > 0 → Û_μ; μ < 0 → Û_{|μ|}†.
+        """
+        if not word:
+            return 1.0 + 0j
+
+        product = np.eye(self.dim, dtype=complex)
+        for step in word:
+            if step > 0:
+                U = operators[step]
+            else:
+                U = operators[-step].conj().T
+            product = product @ U
+        return complex(self.vev(product))
+
+    def check_unitarity(self, U: np.ndarray, tol: float = 1e-6) -> tuple[bool, float]:
+        """Check if U is unitary on the truncated Fock space.
+
+        Returns (is_unitary, ||UU† - I||_F).
+        The truncation introduces a boundary term; the error decreases as L grows.
+        """
+        UU = U @ U.conj().T
+        eye = np.eye(self.dim, dtype=UU.dtype)
+        err = float(np.linalg.norm(UU - eye, ord="fro"))
+        return err < tol, err
+
 
 # ═══════════════════════════════════════════════════════════════
 # Convenience: build the number operator (complicated in Cuntz!)

@@ -36,6 +36,7 @@ python master_field/train.py --model two_matrix_coupled --coupling 1.0 --max_wor
 - **One-matrix models**: scipy SLSQP with Hankel PSD constraint (SD equations are underdetermined without PSD)
 - **Multi-matrix models**: JAX Cholesky parametrization + JIT-compiled gradient descent with pre-computed word→index arrays
 - **Symmetry constraints** (multi-matrix): cyclicity, M₁↔M₂ exchange, Z₂ (M→-M) enforced in loss
+- **Unitary master field (QCD₂ Phase 0)**: `cuntz_fock.build_unitary_gaussian` + `lattice.py` + `qcd2.py`. Single-α Gaussian ansatz Û_μ = exp(iα(â+â†)) matches plaquette by construction; larger Wilson loops deviate (motivates Phase 1 ML parametrization). See `reference/qcd2_master_field.md`.
 
 ## Cluster
 

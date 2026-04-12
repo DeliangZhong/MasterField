@@ -10,6 +10,79 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-11: Revised Plan — Original Directions Only (Apr 9, 2026)
+
+### What's been done (by others — don't repeat)
+
+- **Bootstrap/SDP** (Kazakov-Zheng, Li-Zhou, Guo-Qiao-Zheng): Rigorous *bounds* on Wilson loop averages from MM equations + positivity, via SDP. Works in D=2,3,4 for SU(∞), SU(2), SU(3). Up to L_max=24. Already implemented, published, well-understood. *We are not re-doing this.*
+- **Collective field optimization** (Rodrigues et al.): Master field for Hermitian multi-matrix QM via constrained minimization of V_eff in loop space. Up to ~10⁴ variables. Works for matrix QM but *not* applied to lattice gauge theory.
+- **Gopakumar-Gross**: Explicit master field construction in Cuntz-Fock space. Done for QCD₂ (Gaussian in axial gauge) and for independent/coupled Hermitian matrix models. *Never done for lattice YM in D≥3.*
+
+### What has NOT been done — the gap
+
+**Nobody has explicitly constructed the master field (as an operator in a well-defined Hilbert space) for lattice Yang-Mills theory in D≥3.**
+
+The bootstrap bounds the observables. The Rodrigues program finds the master field for matrix QM. But lattice YM in D=3,4 — actual QCD — has no explicit master field construction.
+
+This is the target. The ML is not an end in itself — it's the computational engine for a problem that is well-posed but computationally intractable by brute force.
+
+### The physics setup
+
+**Spacetime-independent master field** (Gopakumar-Gross §1, eq. 1.6-1.7): the master gauge field can be made spacetime-independent by a gauge transformation. On the lattice: master link variables Ū_μ depend only on direction μ, not on site. The entire N=∞ lattice YM theory is encoded in **D unitary operators** Û_1, ..., Û_D in a Cuntz-Fock space.
+
+Wilson loop for closed path C = (μ_1,...,μ_k) with μ_i ∈ {±1,...,±D} and Û_{-μ} = Û_μ†:
+
+W[C] = ⟨Ω| Û_{μ_1} Û_{μ_2} ⋯ Û_{μ_k} |Ω⟩
+
+This is the Gopakumar-Gross framework applied to unitary operators. Fock space has 2D creation operators â_μ†.
+
+### Why this hasn't been done
+
+1. **Unitarity constraint**: Û_μ Û_μ† = 1 as operator equation is nontrivial in truncated Fock space; couples all orders.
+2. **Nonlinear loop equations** at N=∞ via factorization: MM equation involves products W[C_1]·W[C_2].
+3. **Exponential growth** of distinct loops with length (~618 at L_max=12 in 4D, per Qiao-Zheng).
+4. **No small parameter**: D≥3 has genuine interactions; no globally convergent expansion.
+
+### Three genuinely new directions
+
+**Direction A — Neural loop functional**. Parametrize W[C] as a neural network f_θ: loops → ℝ. Transformer/GRU on step sequences with built-in equivariance (cyclic, reversal, hyperoctahedral symmetry B_D). Loss = MM residuals. Coupling λ as additional input — single trained network gives full phase diagram. Deconfinement transition appears as a sharp feature in f_θ(C, λ). **Novelty**: first neural parametrization of the observable W[C] itself. Generalizes beyond truncation (training at length L constrains predictions at L+2 via MM).
+
+**Direction B — Cuntz-Fock master field operators**. Directly construct Û_μ in truncated Cuntz-Fock space. Parametrize Û_μ = exp(i Ĥ_μ) with Ĥ_μ Hermitian. Constraints: MM residuals, unitarity Û Û† ≈ I, PSD correlation matrix (automatic from Fock structure). Loss = Σ|MM|² + μ Σ ||Û_μ Û_μ† - I||². For large truncation, parametrize Ĥ_μ via NN. **Novelty**: the Rodrigues/Jevicki-Sakita program applied to lattice YM (unitary operators), not matrix QM.
+
+**Direction C — Hybrid bootstrap-ML**. Use Kazakov-Zheng bootstrap bounds W⁻[C] ≤ W[C] ≤ W⁺[C] as *hard box constraints* on a neural loop functional, then train against MM residuals. Bootstrap eliminates spurious local minima; ML extrapolates beyond the bootstrap truncation and finds the unique interior point. **Novelty**: uses rigorous bounds as constraints rather than stopping at bounds.
+
+### Implementation phases
+
+- **Phase 0** (QCD₂): validate the Cuntz-Fock unitary master field against the exactly-solvable 2D theory. Gaussian in axial gauge (Gopakumar-Gross §5), W[C] = exp(-λ Area/2).
+- **Phase 1** (D=2 neural): train neural loop functional against MM, compare to exact area law. Test architecture, equivariances, generalization to long loops.
+- **Phase 2** (D=3): the first unsolved case. All three directions applied in parallel. Validate against published SDP bounds and MC.
+- **Phase 3** (D=4 QCD): the target. Extract string tension, glueballs, deconfinement from f_θ(C, λ).
+
+### What makes this original
+
+| Existing work | What it does | What it doesn't |
+|---|---|---|
+| Kazakov-Zheng SDP | Bounds on W[C] | Not the master field. Only up to L_max. |
+| Rodrigues collective field | Master field for matrix QM | Not lattice gauge theory. Hermitian. |
+| Gopakumar-Gross | Cuntz-Fock framework + QCD₂ | Not D≥3. Framework, not solution. |
+| Normalizing flows for LGT | Sample gauge configurations | Not N=∞. Not master field. |
+
+Our contribution: (A) first neural parametrization of W[C] itself; (B) first explicit master field construction for lattice YM in D≥3; (C) bootstrap bounds as hard ML constraints.
+
+If Direction A or B succeeds in D=4: first explicit construction of the large-N master field for QCD. Problem posed by Witten (1979), formalized by Gopakumar-Gross (1994). 47 years open.
+
+### References
+
+1. Gopakumar-Gross, hep-th/9411021, §1 (spacetime-independent master field), §5 (QCD₂ master field)
+2. Gopakumar PhD thesis (1997)
+3. Rodrigues et al. JHEP 2022, 2024 — master variable / collective field
+4. Kazakov-Zheng 2203.11360 — MM equations on lattice, SDP bootstrap
+5. Qiao-Zheng 2601.04316 — systematic loop equation construction
+6. Raissi et al., J. Comp. Phys. 378 (2019) — physics-informed NN
+7. Han-Hartnoll, Phys. Rev. X 10 (2020) — NN ansatz for matrix model ground states
+
+---
+
 ## Discussion-10: Gross-Witten Model — Unitary Loop Equations (Apr 9, 2026)
 
 ### The problem

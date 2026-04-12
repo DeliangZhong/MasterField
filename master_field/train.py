@@ -36,6 +36,7 @@ def main():
             "two_matrix_coupled",
             "yang_mills_qm",
             "gross_witten",
+            "qcd2",
         ],
         help="Matrix model to solve",
     )
@@ -96,6 +97,13 @@ def main():
     sol = None
     m_exact = None
     losses = []
+
+    if args.model == "qcd2":
+        print("\n[2] QCD₂ master field (Phase 0 validation)...")
+        from qcd2 import qcd2_main
+
+        qcd2_main(Ls=[args.max_word_length], lams=[args.coupling])
+        return
 
     if args.model in ["gaussian", "quartic", "sextic"]:
         print(f"\n[2] One-matrix ML optimisation ({args.model})...")
