@@ -10,6 +10,99 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-20: Choosing the R6 fix — Haar entropy vs MM loss vs SDP bootstrap (Apr 12, 2026)
+
+### Context
+
+Implementation-19 (Phase B) established empirically that minimizing the classical TEK action S_classical over matrices U_μ gives the zero-entropy classical vacuum at every coupling, not the master field. This is R6. Three routes to recover coupling-dependent master-field observables were listed. This entry evaluates them before picking one.
+
+### Physics recap — what the master field actually is
+
+The master field is not a canonical N×N matrix. It is:
+- in Witten's sense, the N=∞ saddle of the path integral, defined by large-N factorization;
+- in Gopakumar-Gross's sense, a pair of operators Û_μ in the Cuntz-Fock space, encoding all single-trace expectation values;
+- in MC's sense, the limiting configuration around which finite-N samples cluster with O(1/N²) fluctuations.
+
+All three of these encode the SAME single-trace observables (Wilson loops). The master field has well-defined Wilson loops at N=∞, but the specific matrix realization at finite N is gauge-dependent.
+
+The path integral at finite N is Z = ∫ dU e^{−S[U]}. In eigenvalue coordinates, the Haar measure contributes a Vandermonde repulsion ∏|e^{iθ_i} − e^{iθ_j}|². At large N this log-Vandermonde term is O(N²), same order as the action. At the saddle the two balance — yielding the MC-observed plaquette vs coupling. Minimizing S alone drops the Vandermonde and collapses to the classical vacuum; this is what Phase B saw.
+
+### Option 1 — Add Haar entropy to the loss
+
+Derive log|J| for the parametrization and add it.
+
+For U = exp(iH) ∈ U(N) with H Hermitian: the Jacobian of the exponential map gives
+
+    dU_Haar / dH = |det[(1 − e^{−i ad H}) / (i ad H)]|   (Duflo/BCH formula)
+
+In eigenvalue coordinates of H (eigenvalues θ_i), this specializes to
+
+    |det J| = ∏_{i<j} |sinc((θ_i − θ_j)/2)|²
+
+Adding −log|J| to the loss restores the Vandermonde repulsion. The optimizer would see an eigenvalue-repulsion pressure that, balanced against the plaquette-attraction, produces a coupling-dependent saddle.
+
+**Pros.** Direct. Preserves the "find matrix master field" framing. Cleanly matches MC at N=∞ by construction.
+
+**Cons.** (i) The Duflo Jacobian is expensive to evaluate — requires spectral decomposition or a determinant of an (N² × N²) adjoint matrix per gradient step. (ii) Gradients of −log|J| through autodiff on a near-degenerate spectrum can be numerically fragile. (iii) The orientation ansatz's coadjoint-orbit measure is constant (no log|J| contribution), so this option only rescues the FULL ansatz, not orientation. (iv) Still unclear whether the saddle of (S + log|J|) is unique — may have center-broken and center-symmetric minima depending on initialization.
+
+**Cost estimate.** A week of physics derivation + implementation + debugging. Substantial.
+
+### Option 2 — Makeenko-Migdal loop equations as loss
+
+The MM equations are loop-space statements of the master-field condition:
+
+    λ · W[C]  =  Σ_{P ∋ e} W[P_e ∘ C]  −  Σ_{splits} W[C_1] · W[C_2]
+
+These equations are satisfied BY the master field at N=∞, independent of how we parametrize. We compute Wilson loops from our TEK matrices U_μ, sum MM residuals squared, minimize.
+
+**Pros.** (i) Already proven on D=2 lattice YM in Phase 1b (with partial success — MM loss converges, but not uniquely without positivity). (ii) No Haar-entropy derivation needed — MM IS the correct master-field condition. (iii) Works for both orientation and full ansätze. (iv) Natural coupling dependence: λ enters explicitly in the equation.
+
+**Cons.** (i) Phase 1b on D=2 revealed that MM alone is underdetermined (K unknowns, K − few equations). Needs positivity constraints for uniqueness. (ii) At each step, we must evaluate W[C] for many lattice loops via Tr(product of U_μ)/N — O(loop_length × N²) per loop. For L_max = 6 on TEK, ~35 loops times 32 equations; manageable. (iii) TEK requires the twist-adjusted MM equations; need to verify our existing MM implementation (staple convention from `master_field/mm_equations.py`) applies correctly after volume reduction.
+
+**Cost estimate.** Moderate. Most of the infrastructure exists in `master_field/lattice.py` and `mm_equations.py`. Porting to TEK means: (a) evaluating W[C] from TEK U_μ instead of neural functionals; (b) adding the TEK twist phase to the MM equation (analogous to rectangular Wilson loop twist from Impl-16); (c) coupling-continuation schedule over λ. Perhaps 2–3 days.
+
+### Option 3 — SDP bootstrap with continuation
+
+Formulate as a semidefinite program: MM equations as linear constraints, positivity of the Toeplitz moment matrix as PSD constraint, minimize a scalar observable (or find feasible point). With optimum over W[C] values directly; recover U_μ from W[C] post-hoc (harder).
+
+**Pros.** (i) Rigorous — Kazakov-Zheng 2021 proved this converges to the unique master field at N=∞ with certifiable bounds. (ii) Handles non-uniqueness of MM alone via positivity. (iii) No autodiff/gradient issues.
+
+**Cons.** (i) SDP solvers (cvxpy + SCS/MOSEK) don't easily give us U_μ* matrices — they give W[C]* values. Matrix reconstruction is a separate step (hard, probably using the Cuntz-Fock framework). (ii) SDP scaling is harder at large N_loops (N_loops grows exponentially with loop length). (iii) Doesn't exploit our Phase 3 matrix parametrization; largely replaces it.
+
+**Cost estimate.** High, and pivots away from the "master field as matrices" narrative. Perhaps a week + significant physics to reconstruct matrices from bootstrap bounds.
+
+### Recommendation
+
+**Pursue Option 2 (MM loop-equation loss) with Option 3's positivity as a later addition.**
+
+Rationale:
+- MM is the correct master-field condition — no ambiguity about what we are solving.
+- It reuses Phase 1's infrastructure (lattice loop enumeration, MM equation machinery).
+- It works for both ansätze, so we can test which ansatz is better after fixing R6.
+- Failure mode (MM underdetermined) is known from Phase 1b and has a clean fix (R3 positivity + warm-start from supervised or SDP) if needed.
+- Keeps the "matrix master field" story intact: we optimize matrices U_μ, just with a different (correct) loss.
+- Cheapest of the three in wall time.
+
+Option 1 (Haar entropy) is the most physically direct, but computationally fragile and expensive. Defer unless Option 2 fails on D=2 TEK.
+
+Option 3 (SDP) is the gold standard for W[C] values but shifts us away from matrix construction. Defer for now; if we need rigorous bounds for validation, use existing Kazakov-Zheng results.
+
+### Proposed next action
+
+Create `tek_master_field/mm_loss.py` that:
+1. Takes a LoopSystem (enumerated lattice loops + MM equation indices) for D=2.
+2. Builds a function `mm_loss_tek(params, Gamma, z, D, ansatz, loop_sys)`:
+   a. Build U_μ from params (existing).
+   b. For each canonical loop C in loop_sys, compute W[C] = Re[Z(C) · Tr(product)] / N with the TEK twist phase Z(C) along the path.
+   c. Compute MM residuals: λ · W[C] − Σ W[P_e ∘ C] + Σ W[C_1] W[C_2].
+   d. Return sum of squared residuals.
+3. Plug into `optimize_tek` as an alternative loss (`loss="classical" | "mm"`).
+4. Validate on untwisted D=2 EK against Phase 1b's D=2 results (should match area law W = (1/(2λ))^A at strong coupling).
+
+Phase B-MM would then be: run both ansätze with MM loss on untwisted and twisted D=2. If plaquette matches MC strong coupling (1/(2λ)) and weak coupling behavior, R6 is resolved.
+
+---
+
 ## Implementation-19: Phase B — classical saddle found; master-field requires Haar entropy (Apr 12, 2026)
 
 ### Result
