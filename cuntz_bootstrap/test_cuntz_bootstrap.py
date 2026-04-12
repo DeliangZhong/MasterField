@@ -299,10 +299,7 @@ def test_unitarity_loss_from_identity_params_zero():
 # Task 5: Wilson loop evaluator
 # -------------------------------------------------------------------------
 
-from cuntz_bootstrap.wilson_loops import (  # noqa: E402
-    build_forward_link_ops,
-    wilson_loop,
-)
+from cuntz_bootstrap.wilson_loops import wilson_loop  # noqa: E402
 
 
 @pytest.mark.unit
@@ -330,13 +327,26 @@ def test_loop_with_mu_zero_raises():
         wilson_loop([I, I], loop=(1, 0, -1), fock=f, D=2)
 
 
+# Note: v1 used master_operator + wilson_loops.build_forward_link_ops.
+# v2 uses hermitian_operator.build_forward_link_ops (imported above as
+# build_forward_link_ops_v2). The tests below use the v2 API.
+
+
 @pytest.mark.unit
-def test_wilson_loop_differentiable_through_params():
+def test_wilson_loop_differentiable_through_hermitian_params():
+    """Replace v1's master_operator-based gradient test with v2 exp-Hermitian."""
     f = CuntzFockJAX(n_labels=4, L_trunc=2)
-    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
+    # Forward reference: `init_hermitian_params` and `build_forward_link_ops_v2`
+    # are imported near the top of the v2 Task 2 section below.
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    params = _init_v2(n_matrices=2, fock=f, seed=0, scale=0.1)
 
     def loss_fn(ps):
-        Us = build_forward_link_ops(ps, fock=f)
+        Us = _build_v2(ps, fock=f)
         W = wilson_loop(Us, loop=(1, 2, -1, -2), fock=f, D=2)
         return jnp.real(W)
 
@@ -347,26 +357,30 @@ def test_wilson_loop_differentiable_through_params():
 
 
 @pytest.mark.unit
-def test_wilson_loop_single_edge_gives_vacuum_amplitude():
-    """W[(1,)] = ⟨Ω|Û_1|Ω⟩ = c^{(+)}_{empty}."""
+def test_wilson_loop_single_edge_from_identity_unitary():
+    """W[(1,)] with Û = I gives 1."""
     f = CuntzFockJAX(n_labels=2, L_trunc=2)
-    # Set only the identity coefficient = 0.7 for Û_1
-    c = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(0.7 + 0.1j)
-    U_list = [assemble_master_operator(c, f)]
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    U_list = [I]
     W = wilson_loop(U_list, loop=(1,), fock=f, D=1)
-    assert float(jnp.abs(W - (0.7 + 0.1j))) < 1e-12
+    assert float(jnp.abs(W - 1.0)) < 1e-12
 
 
 @pytest.mark.unit
-def test_wilson_loop_adjoint_convention():
-    """W[(1, -1)] = ⟨Ω|Û_1 Û_1†|Ω⟩ = ⟨Ω|(UU†)|Ω⟩ = (UU†)[0,0]."""
+def test_wilson_loop_adjoint_convention_v2():
+    """W[(1, -1)] = ⟨Ω|Û_1 Û_1†|Ω⟩ = ⟨Ω|I|Ω⟩ = 1 for a unitary Û_1."""
     f = CuntzFockJAX(n_labels=2, L_trunc=2)
-    params = init_master_operator_params(n_matrices=1, fock=f, seed=7)
-    U_list = build_forward_link_ops(params, fock=f)
-    U = U_list[0]
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    params = _init_v2(n_matrices=1, fock=f, seed=7, scale=0.2)
+    U_list = _build_v2(params, fock=f)
     W = wilson_loop(U_list, loop=(1, -1), fock=f, D=1)
-    expected = (U @ U.conj().T)[0, 0]
-    assert float(jnp.abs(W - expected)) < 1e-12
+    # For exactly unitary Û, Û Û† = I, so W[(1, -1)] = (I)[0,0] = 1.
+    # Padé expm gives unitarity to ~1e-10, so |W - 1| ≤ 1e-10.
+    assert float(jnp.abs(W - 1.0)) < 1e-10
 
 
 # -------------------------------------------------------------------------

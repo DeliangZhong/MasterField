@@ -22,7 +22,6 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 from .fock import CuntzFockJAX
-from .master_operator import assemble_master_operator
 
 
 def _apply_step(
@@ -54,8 +53,5 @@ def wilson_loop(
     return v[0]
 
 
-def build_forward_link_ops(
-    params: list[jnp.ndarray], fock: CuntzFockJAX
-) -> list[jnp.ndarray]:
-    """Assemble all forward link operators from coefficient vectors."""
-    return [assemble_master_operator(c, fock) for c in params]
+"""Note: `build_forward_link_ops` lives in `hermitian_operator.py` for v2.
+Import it from there instead of this module."""
