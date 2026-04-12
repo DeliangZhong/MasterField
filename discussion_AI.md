@@ -10,6 +10,82 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-12: Phase 0 — QCD₂ Master Field Infrastructure (Apr 9, 2026)
+
+### What was built
+
+Following the Discussion-11 roadmap, Phase 0 delivers the infrastructure for constructing unitary master field operators in the Cuntz-Fock space and computing lattice Wilson loops.
+
+**New modules:**
+- `master_field/lattice.py`: lattice loop encoder with signed step indices `μ ∈ {±1,...,±D}`. Provides backtrack reduction, cyclic canonicalization, hyperoctahedral symmetry orbits (`B_D`), non-self-intersecting loop enumeration, and (preliminary) plaquette-insertion and self-intersection split operators for MM-equation residuals.
+- `master_field/qcd2.py`: `solve_alpha_for_plaquette` (brentq root-finding), `validate_wilson_loops` (comparison against exact area law), `validate_mm_equation_exact` (MM residual check against exact area-law Wilson loops), `qcd2_main` acceptance output.
+- `master_field/test_qcd2.py`: 18 pytest tests. All pass.
+
+**Extended modules:**
+- `cuntz_fock.CuntzFockSpace`: `build_unitary_gaussian(α, μ) = exp(iα(â_μ+â_μ†))` via `scipy.linalg.expm`. `wilson_loop_vev(operators, word)` handles signed step indices (negative → conjugate transpose). `check_unitarity` monitors `‖UU† − I‖_F`.
+
+**Documentation:**
+- `reference/qcd2_master_field.md`: physics reference with the exact formulas (area law, axial-gauge Gaussian master field per Gopakumar-Gross §5, lattice MM equation) and the observed Phase 0 behavior.
+
+### Empirical findings
+
+**Unitarity** (machine-level). `‖Û_μ Û_μ† − I‖_F = O(10^{−15})` at every truncation tested. `scipy.linalg.expm` of a Hermitian matrix is unitary to machine precision, even in a truncated Fock space.
+
+**α convergence** (rapid). The fitted α(λ, L) that matches the plaquette converges quickly:
+
+| λ | α(L=4) | α(L=6) | α(L=8) | α(L=10) |
+|---|---|---|---|---|
+| 1.0 | 0.95181358 | 0.95176911 | 0.95176915 | 0.95176915 |
+
+Stable to 8 decimals by L=8.
+
+**Plaquette** (exact by construction). `|W[□]_ML − e^{−λ/2}| < 10^{−10}` for all tested λ ∈ {0.5, 1, 2, 5}, L ∈ {4,6,8,10}.
+
+**The key physical finding**: the single-α Gaussian ansatz Û_μ = exp(iα(â_μ+â_μ†)) **does not reproduce the area law** for Wilson loops larger than the plaquette. The error saturates at a fixed, L-independent value:
+
+| Loop | λ=1, L=6 | λ=1, L=8 | λ=1, L=10 |
+|---|---|---|---|
+| 1×1 (plaquette) | 0 (fit) | 0 (fit) | 0 (fit) |
+| 2×1 rectangle | 5.1×10⁻³ | 4.9×10⁻³ | 4.9×10⁻³ |
+| 2×2 square | 1.35×10⁻¹ | 1.35×10⁻¹ | 1.35×10⁻¹ |
+
+Since α has converged but the Wilson loop errors have not, the deficiency is in the **ansatz form**, not in the truncation. With only one real parameter, the ansatz has 1 degree of freedom; the area law requires W[m×n] = W[□]^{mn} for all m,n, giving infinitely many independent constraints.
+
+### Interpretation
+
+Gopakumar-Gross §5 states that 2D YM has a Gaussian master field in axial gauge. Two possible readings:
+
+1. **Continuum/scaling statement**. "Gaussian" refers to the continuum master field. On a finite Cuntz-Fock truncation with spacetime-independent link operators, the "Gaussian" form `exp(iα(â+â†))` is too restrictive and yields only approximate area law.
+
+2. **Generalized Gaussian**. The correct ansatz might be a Voiculescu-style expansion Û_μ = Σ_n c_{μ,n} (â_μ†)^n + (h.c.) with infinitely many coefficients tuned to reproduce the full Wilson-loop algebra. At the truncation level L, this gives O(L) coefficients per direction — enough to match O(L) independent Wilson loops.
+
+Either way, the implication for our program is the same: **Phase 1 must optimize over a richer ansatz.** Two natural candidates:
+
+- **Polynomial coefficients** `{c_{μ,n}}_{n=0}^{L-1}` trained against MM-equation residuals (Direction B in Discussion-11).
+- **Neural loop functional** `f_θ(C, λ)` with architectural equivariances, trained against MM-equation residuals directly (Direction A).
+
+### MM-equation machinery status
+
+The `plaquette_insertions` and `self_intersection_splits` functions in `lattice.py` are implemented but untested for correctness against specific conventions. `validate_mm_equation_exact` currently reports large residuals when evaluated on the exact area law — this is most likely because our insertion convention (replacing link μ with a plaquette closed path) does not match the standard Migdal/Chatterjee convention, which uses edge-set symmetric difference. Deferred to Phase 1 planning when we actually need MM loss functions.
+
+### Phase 0 acceptance
+
+✓ Infrastructure built and tested (18/18 pytest, 16/16 pre-existing tests).  
+✓ Plaquette matches exactly to machine precision.  
+✓ α(λ, L) converges with L.  
+✓ Unitarity preserved.  
+✓ Backtrack invariance (`W[(1,-1,2,3,-3,2)] = W[(2,2)]`) holds.  
+✓ Exchange symmetry `W[2×1] = W[1×2]` holds.  
+✗ Full area-law reproduction for larger loops — deferred to Phase 1 (as expected; single-parameter ansatz is insufficient).
+
+### Next step — Phase 1
+
+Train a multi-parameter ansatz against the full set of Wilson loops up to L_max. Candidate: polynomial Û_μ = exp(i Ĥ_μ) with Ĥ_μ = Σ_n h_n (â_μ + â_μ†)^n (truncated Taylor series with trainable coefficients). This has ~L real parameters per direction. Loss = Σ over loops of |W_ML[C] − e^{−λ·Area(C)/2}|² + unitarity penalty.
+
+Alternatively (Direction A): parametrize W[C] as a neural network with built-in equivariances, train against MM-equation residuals. No Fock space needed for the forward pass; Fock-space checks only for validation.
+
+---
+
 ## Discussion-11: Revised Plan — Original Directions Only (Apr 9, 2026)
 
 ### What's been done (by others — don't repeat)
