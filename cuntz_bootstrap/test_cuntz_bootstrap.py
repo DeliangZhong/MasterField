@@ -384,69 +384,79 @@ def test_wilson_loop_adjoint_convention_v2():
 
 
 # -------------------------------------------------------------------------
-# Task 6: MM loss integration
+# v2 Task 4: MM residuals (per-equation; total loss composes in total_loss.py)
 # -------------------------------------------------------------------------
 
-from cuntz_bootstrap.mm_loss import make_cuntz_mm_loss_fn  # noqa: E402
+from cuntz_bootstrap.mm_loss import (  # noqa: E402
+    _load_loop_system,
+    compute_all_wilson_loops,
+    default_area_law_target,
+    make_mm_residuals_fn,
+)
 
 
 @pytest.mark.integration
-def test_mm_loss_fn_differentiable():
-    from cuntz_bootstrap.mm_loss import _load_loop_system
-
+def test_mm_residuals_shape():
+    """Residual array length = number of MM equations."""
     loop_sys = _load_loop_system(D=2, L_max=4)
     f = CuntzFockJAX(n_labels=4, L_trunc=2)
-    loss_fn = make_cuntz_mm_loss_fn(
-        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0, w_sup=0.0
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
     )
-    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
-    val, grads = jax.value_and_grad(loss_fn, argnums=0)(params, 5.0)
+
+    params = _init_v2(n_matrices=2, fock=f, seed=0, scale=0.02)
+    U_list = _build_v2(params, fock=f)
+    residuals_fn = make_mm_residuals_fn(loop_sys=loop_sys, fock=f, D=2)
+    res = residuals_fn(U_list, 5.0)
+    assert res.shape == (len(loop_sys.mm_equations),)
+
+
+@pytest.mark.integration
+def test_mm_residuals_differentiable():
+    """jax.grad of (params → sum of MM residuals²) is finite."""
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    residuals_fn = make_mm_residuals_fn(loop_sys=loop_sys, fock=f, D=2)
+
+    def scalar(ps, lam):
+        U_list = _build_v2(ps, fock=f)
+        return jnp.sum(residuals_fn(U_list, lam) ** 2)
+
+    params = _init_v2(n_matrices=2, fock=f, seed=0, scale=0.02)
+    val, grads = jax.value_and_grad(scalar, argnums=0)(params, 5.0)
     assert bool(jnp.isfinite(val))
     for g in grads:
         assert bool(jnp.all(jnp.isfinite(g)))
 
 
 @pytest.mark.integration
-def test_mm_loss_identity_params_unitarity_zero_mm_nonzero():
-    """Identity Û gives L_unit = 0 but L_MM != 0 (W[C] = 1 violates MM)."""
-    from cuntz_bootstrap.mm_loss import _load_loop_system
-
+def test_mm_residuals_identity_nonzero():
+    """At Û = I (all W[C] = 1) the MM residuals do NOT all vanish."""
     loop_sys = _load_loop_system(D=2, L_max=4)
     f = CuntzFockJAX(n_labels=4, L_trunc=2)
-    loss_fn = make_cuntz_mm_loss_fn(
-        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0,
-        w_sup=0.0, return_components=True,
-    )
-    c0 = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
-    params = [c0, c0]
-    total, L_unit, L_mm, L_sup = loss_fn(params, 5.0)
-    assert float(L_unit) < 1e-18
-    assert float(L_mm) > 0.01
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    U_list = [I, I]
+    residuals_fn = make_mm_residuals_fn(loop_sys=loop_sys, fock=f, D=2)
+    res = residuals_fn(U_list, 5.0)
+    assert float(jnp.max(jnp.abs(res))) > 0.01
 
 
 @pytest.mark.integration
-def test_mm_loss_supervised_anchor_vanishes_at_target():
-    """With w_sup=1 and target = current W, L_sup ~ 0 at identity params."""
-    from cuntz_bootstrap.mm_loss import _load_loop_system
-
+def test_default_area_law_target_plaquette():
+    """At λ=5, the area-law target for a plaquette is 1/(2λ) = 0.1."""
     loop_sys = _load_loop_system(D=2, L_max=4)
-    f = CuntzFockJAX(n_labels=4, L_trunc=2)
-
-    # At identity params, all Wilson loops = 1 (empty and non-empty).
-    # Target = all ones: L_sup must be 0.
-    n_loops = loop_sys.K
-    sup_target_ones = jnp.ones(n_loops, dtype=jnp.float64)
-
-    loss_fn = make_cuntz_mm_loss_fn(
-        loop_sys=loop_sys, fock=f, D=2,
-        w_unit=0.0, w_mm=0.0, w_sup=1.0,
-        sup_target_fn=lambda lam: sup_target_ones,
-        return_components=True,
-    )
-    c0 = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
-    params = [c0, c0]
-    _, _, _, L_sup = loss_fn(params, 5.0)
-    assert float(L_sup) < 1e-20
+    target = default_area_law_target(loop_sys, 5.0)
+    # Find a loop with area 1 (plaquette)
+    plaq_idxs = [i for i in range(loop_sys.K) if loop_sys.areas.get(i, 0) == 1]
+    assert plaq_idxs, "no area-1 loop in D=2 L_max=4 loop system"
+    for i in plaq_idxs:
+        assert abs(float(target[i]) - 0.1) < 1e-12
 
 
 # -------------------------------------------------------------------------
@@ -457,15 +467,23 @@ from cuntz_bootstrap.optimize import OptResult, optimize_cuntz  # noqa: E402
 
 
 @pytest.mark.integration
-def test_optimize_cuntz_reduces_unitarity_loss():
-    """Run a tiny optimization on pure L_unit and verify loss decreases."""
+def test_optimize_cuntz_reduces_trace_loss():
+    """Run tiny optimisation on a scalar loss and verify it decreases.
+
+    Uses v2 (exp-Hermitian) ansatz. Loss = -Re(Tr(Û)) drives Û toward I,
+    which minimises the trace loss.
+    """
     f = CuntzFockJAX(n_labels=2, L_trunc=2)
-    from cuntz_bootstrap.unitarity import unitarity_loss_from_params
+    from cuntz_bootstrap.hermitian_operator import (
+        assemble_unitary,
+        init_hermitian_params,
+    )
 
     def loss_fn(params, lam):
-        return unitarity_loss_from_params(params, f)
+        U = assemble_unitary(params[0], f)
+        return -jnp.real(jnp.trace(U))
 
-    params0 = init_master_operator_params(n_matrices=1, fock=f, seed=3, scale=0.3)
+    params0 = init_hermitian_params(n_matrices=1, fock=f, seed=3, scale=0.3)
     init_loss = float(loss_fn(params0, 1.0))
 
     res = optimize_cuntz(
@@ -481,16 +499,22 @@ def test_optimize_cuntz_reduces_unitarity_loss():
 
 
 @pytest.mark.integration
-def test_optimize_cuntz_mm_loss_reduces():
-    """Run on MM+unitarity loss with small L=2 and verify decrease."""
-    from cuntz_bootstrap.mm_loss import _load_loop_system
-
+def test_optimize_cuntz_mm_residuals_reduce():
+    """Run on pure MM loss (v2) with small L=2 and verify decrease."""
     loop_sys = _load_loop_system(D=2, L_max=4)
     f = CuntzFockJAX(n_labels=4, L_trunc=2)
-    loss_fn = make_cuntz_mm_loss_fn(
-        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
     )
-    params0 = init_master_operator_params(n_matrices=2, fock=f, seed=0, scale=0.02)
+
+    residuals_fn = make_mm_residuals_fn(loop_sys=loop_sys, fock=f, D=2)
+
+    def loss_fn(params, lam):
+        U_list = _build_v2(params, fock=f)
+        return jnp.sum(residuals_fn(U_list, lam) ** 2)
+
+    params0 = _init_v2(n_matrices=2, fock=f, seed=0, scale=0.02)
     init_loss = float(loss_fn(params0, 5.0))
 
     res = optimize_cuntz(
