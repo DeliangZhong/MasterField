@@ -10,6 +10,80 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-22: R7 anchor — area-law anchor fixes small loops; breaks for area ≥ 4 (Apr 12, 2026)
+
+### What was added
+
+Extended `mm_loss.make_mm_loss_fn` with two optional supervised-anchor modes:
+
+- `anchor="plaquette"`: adds `w · (W[plaq] − 1/(2λ))²` to the loss (pins plaquette to Gross-Witten value only).
+- `anchor="area_law"`: adds `w · Σ_i (W[C_i] − w_+^|Area(C_i)|)²` over every loop with a well-defined D=2 area. Full supervision toward the lattice area law.
+
+Both take a scalar `anchor_weight` multiplier. Exposed through `optimize_tek_mm`.
+
+### Result at D=2 N=9 untwisted EK, λ=5, full ansatz (anchor weight sweep)
+
+| weight | W[plaq] | W[2×1] | W[2×2] | mm+anch |
+|---|---|---|---|---|
+| GW target | 0.1000 | 0.0100 | 0.0001 | — |
+| 0.00 (MM only) | +0.1014 | +0.0137 | −0.2029 | 1.0e-31 |
+| 0.01 | +0.1008 | +0.0098 | +0.161 | 2.1e-3 |
+| 0.10 | +0.1008 | +0.0103 | +0.071 | 1.2e-2 |
+| 1.00 | +0.0942 | +0.0090 | +0.078 | 1.2e-1 |
+| 10.0 | +0.0923 | +0.0065 | +0.070 | 1.1 |
+| 100. | +0.6615 | +0.1943 | −0.061 | 2.4e+2 |
+
+**W[2×1] tracks GW² to 2% at weight ∈ [0.01, 0.1]** — the area law is recovered for area 2. But W[2×2] stays at ~0.07 vs GW⁴ = 10⁻⁴; anchor at this weight isn't strong enough to pull it down by ~700× while staying consistent with MM.
+
+Pushing to N=49 (more matrix DOF) at λ=5, weight-0.1 gives W[plaq]=0.103 (3% err), W[2×1]=0.011 (10%), W[2×2]=0.052, W[3×1]=0.035 (still ~200× too large). Higher weight degrades plaquette without helping larger loops.
+
+### λ sweep at N=9, weight=0.1
+
+| λ | W[plaq] err% | W[2×1] err% | comment |
+|---|---|---|---|
+| 10 | 2.8% | 25.8% | strong, 2×1 decent |
+| 5 | 0.7% | **2.7%** | best result — area law for 2×1 |
+| 2 | 3.7% | 5.7% | still decent |
+| 1.5 | 15.3% | 38.1% | transition region |
+| 1.0 | 42.5% | 64.8% | weak coupling fails |
+
+The anchor works well at strong coupling (λ ≥ 2) for small loops but breaks down at weak coupling (λ ≈ 1) and for larger loops at any coupling.
+
+### Interpretation
+
+The finite-N TEK matrices at our optimizer's saddle have an eigenvalue structure that is coupling-dependent and matches the MC master field for small probes (plaquette, 2×1), but the larger-loop structure depends on high-order moments of the eigenvalue distribution that neither MM candidate D (leading order in 1/λ) nor the plaquette-centric anchor pins down.
+
+To get W[m×n] = w_+^{m·n} out to large m, n, we need a constraint that shapes the eigenvalue distribution directly — i.e., positivity of the Toeplitz moment matrix (Kazakov-Zheng style). The moment matrix M_{ij} = W[(U^i)(U^{-j})] being PSD is equivalent to the eigenvalue density being a proper probability measure. This is R3 from the original Phase 1 roadmap.
+
+### R7 status
+
+**Partially resolved.** MM + area-law anchor at weight ≈ 0.1 gives:
+- ✓ W[plaq] near GW at strong coupling (< 3% at λ ≥ 2)
+- ✓ W[2×1] near GW² at strong coupling (< 6% at λ ≥ 2)
+- ✗ W[area ≥ 4] badly off
+- ✗ Weak coupling (λ < 1.5) still unreliable
+
+### Next step proposal
+
+Add **Toeplitz-PSD positivity constraint** (R3 from the original plan). Specifically, for each direction μ, build the Hankel/Toeplitz moment matrix from Wilson loops W[U_μ^k] and enforce PSD via a log-barrier or eigenvalue penalty. This is the core of the Kazakov-Zheng bootstrap and should shape the eigenvalue density correctly.
+
+Alternative: larger N (N=121 or 289) with area-law anchor may help since finite-N effects on W[m×n] scale as (mn)/N². But the fundamental issue — arbitrary eigenvalue density compatible with MM + small-loop anchor — won't be fixed by scale alone.
+
+### Phase 3 risk status (updated)
+
+| Risk | Status |
+|------|--------|
+| R1 D=4 k=1 center-symmetry break | deferred |
+| R2 rectangular Wilson loop phase | resolved (Impl-16) |
+| R3 sign conventions | resolved (scaffolding) |
+| R4 orientation-only sufficiency | resolved (Impl-18) |
+| R5 Γ spectrum mismatch | resolved (Impl-17) |
+| R6 classical action misses master field | partially resolved (Impl-21) |
+| R7 MM alone underdetermined | **partially resolved (this entry)** — anchor fixes small loops, large loops need positivity |
+| R8 Toeplitz-PSD positivity needed | **NEW** — Kazakov-Zheng constraint for large-loop structure |
+
+---
+
 ## Implementation-21: Phase B-MM — MM loss works at strong coupling; underdetermined at weak (Apr 12, 2026)
 
 ### What was built

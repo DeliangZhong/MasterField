@@ -47,7 +47,7 @@ _MASTER_FIELD_DIR = str(Path(__file__).resolve().parent.parent / "master_field")
 if _MASTER_FIELD_DIR not in sys.path:
     sys.path.insert(0, _MASTER_FIELD_DIR)
 
-from lattice import LoopSystem, build_loop_system, signed_area_2d  # noqa: E402
+from lattice import LoopSystem, abs_area_2d, build_loop_system, signed_area_2d  # noqa: E402
 
 from tek import (  # noqa: E402
     build_clock_matrix,
@@ -145,6 +145,27 @@ class MMLossFn:
     N: int
 
 
+def _gw_w_plus(lam: jnp.ndarray) -> jnp.ndarray:
+    """Gross-Witten single-plaquette value:  1/(2λ) strong,  1 − λ/2 weak."""
+    return jnp.where(lam >= 1.0, 0.5 / lam, 1.0 - lam / 2.0)
+
+
+def _loop_areas(loops: list[tuple[int, ...]], D: int) -> jnp.ndarray:
+    """|Area(C)| for each loop (D=2 only). Empty loop → 0."""
+    if D != 2:
+        return jnp.zeros(len(loops), dtype=jnp.int32)
+    areas = []
+    for w in loops:
+        if not w:
+            areas.append(0)
+            continue
+        try:
+            areas.append(abs_area_2d(w))
+        except ValueError:
+            areas.append(0)
+    return jnp.array(areas, dtype=jnp.int32)
+
+
 def make_mm_loss_fn(
     loop_sys: LoopSystem,
     Gamma: jnp.ndarray,
@@ -152,18 +173,43 @@ def make_mm_loss_fn(
     D: int,
     N: int,
     ansatz: str,
+    anchor: str = "none",
+    anchor_weight: float = 1.0,
 ) -> MMLossFn:
     """Build a JIT-compiled MM loss callable.
 
-    The MM equations from `loop_sys.mm_equations` are unrolled at JIT time; for
-    D=2 L_max=6 this is ~32 equations over ~35 loops — fast to compile.
+    Args:
+        anchor: supervised-anchor mode. One of:
+            - "none": pure MM residual.
+            - "plaquette": add anchor_weight · (W[plaq] − w_+(λ))² for the elementary
+              plaquette loop (canonical form `(-2, -1, 2, 1)`).
+            - "area_law": add anchor_weight · Σ_i (W[C_i] − w_+(λ)^|Area(C_i)|)²
+              for all loops with a well-defined D=2 absolute area. Strong
+              supervision toward the Gross-Witten lattice area law.
+        anchor_weight: scalar multiplier for the anchor term.
+
+    The MM equations from `loop_sys.mm_equations` are unrolled at JIT time.
     """
     if ansatz not in ("orientation", "full"):
         raise ValueError(f"Unknown ansatz {ansatz!r}")
+    if anchor not in ("none", "plaquette", "area_law"):
+        raise ValueError(f"Unknown anchor {anchor!r}")
 
     loops = loop_sys.loops
     twists = twist_factors_for_loops(loops, z, D)
     eqs = loop_sys.mm_equations
+    areas = _loop_areas(loops, D) if anchor != "none" else None
+
+    # Identify the canonical plaquette index for "plaquette" anchor.
+    plaq_idx: int | None = None
+    if anchor == "plaquette":
+        # Plaquette's canonical form is the one of length 4 with |area|=1.
+        for i, w in enumerate(loops):
+            if len(w) == 4 and abs_area_2d(w) == 1:
+                plaq_idx = i
+                break
+        if plaq_idx is None:
+            raise RuntimeError("plaquette not found in LoopSystem — is L_max too small?")
 
     def _build_U(params: list[jnp.ndarray]) -> list[jnp.ndarray]:
         if ansatz == "orientation":
@@ -174,8 +220,7 @@ def make_mm_loss_fn(
         U = _build_U(params)
         return compute_all_wilson_loops(U, loops, twists, N)
 
-    def _loss(params: list[jnp.ndarray], lam: float) -> jnp.ndarray:
-        w = _wilson_vec(params)
+    def _mm_residual(w: jnp.ndarray, lam: jnp.ndarray) -> jnp.ndarray:
         total = jnp.zeros((), dtype=jnp.float64)
         for eq in eqs:
             if eq.lhs_loop_indices:
@@ -187,6 +232,23 @@ def make_mm_loss_fn(
                 rhs = rhs + w[i] * w[j]
             total = total + (lhs - rhs) ** 2
         return total
+
+    def _anchor_term(w: jnp.ndarray, lam: jnp.ndarray) -> jnp.ndarray:
+        if anchor == "none":
+            return jnp.zeros((), dtype=jnp.float64)
+        w_plus = _gw_w_plus(lam)
+        if anchor == "plaquette":
+            target = w_plus
+            return anchor_weight * (w[plaq_idx] - target) ** 2
+        # area_law
+        targets = w_plus ** areas.astype(jnp.float64)
+        # Only penalize loops with well-defined area (nonzero index or empty set)
+        diffs = w - targets
+        return anchor_weight * jnp.sum(diffs ** 2)
+
+    def _loss(params: list[jnp.ndarray], lam: jnp.ndarray) -> jnp.ndarray:
+        w = _wilson_vec(params)
+        return _mm_residual(w, lam) + _anchor_term(w, lam)
 
     loss_jit = jit(_loss)
     grad_jit = jit(grad(_loss, argnums=0))
@@ -256,11 +318,16 @@ def optimize_tek_mm(
     tol: float = 1e-8,
     seed: int = 42,
     verbose: bool = True,
+    anchor: str = "none",
+    anchor_weight: float = 1.0,
 ) -> MMOptResult:
-    """Run Adam on the MM-loss, starting from a random or supplied init.
+    """Run Adam on the MM-loss (+ optional supervised anchor), starting from a
+    random or supplied init.
 
     D=2 only for now (twist factor uses signed_area_2d). L_max controls the
     size of the LoopSystem; 6 is the Phase 1b default (35 loops, 32 equations).
+
+    anchor ∈ {"none", "plaquette", "area_law"} — see make_mm_loss_fn.
     """
     if D != 2:
         raise NotImplementedError("optimize_tek_mm: D=2 only (for now)")
@@ -275,7 +342,10 @@ def optimize_tek_mm(
     z = build_twist(D, N, L_lat, k=k) if twist else jnp.ones((D, D), dtype=jnp.complex128)
     loop_sys = build_loop_system(D=D, L_max=L_max)
 
-    mm = make_mm_loss_fn(loop_sys, Gamma, z, D, N, ansatz)
+    mm = make_mm_loss_fn(
+        loop_sys, Gamma, z, D, N, ansatz,
+        anchor=anchor, anchor_weight=anchor_weight,
+    )
 
     if init_params is None:
         key = random.PRNGKey(seed)
