@@ -166,6 +166,61 @@ def _loop_areas(loops: list[tuple[int, ...]], D: int) -> jnp.ndarray:
     return jnp.array(areas, dtype=jnp.int32)
 
 
+def _toeplitz_moment_matrix(U: jnp.ndarray, K: int) -> jnp.ndarray:
+    """Build the (K+1)×(K+1) Toeplitz moment matrix for a unitary U:
+
+        M[i, j] = Tr(U^{i-j}) / N   (with W_{-k} = conj(W_k))
+
+    For a unitary matrix with eigenvalues on the unit circle, M is guaranteed
+    PSD by Toeplitz's theorem (the moments come from the atomic eigenvalue
+    measure). This function is useful for diagnostics but adding a PSD penalty
+    on M to our matrix-parametrized loss is redundant (the moments are always
+    PSD-consistent since they come from actual unitary matrices).
+    """
+    N = U.shape[0]
+    Ws = [jnp.array(1.0, dtype=jnp.complex128)]
+    Uk = jnp.eye(N, dtype=jnp.complex128)
+    for _ in range(K):
+        Uk = Uk @ U
+        Ws.append(jnp.trace(Uk) / N)
+    # M[i, j] = W_{i-j}
+    M = jnp.zeros((K + 1, K + 1), dtype=jnp.complex128)
+    for i in range(K + 1):
+        for j in range(K + 1):
+            k = i - j
+            M = M.at[i, j].set(Ws[abs(k)] if k >= 0 else jnp.conj(Ws[-k]))
+    return M
+
+
+def _moment_anchor_term(
+    U_list: list[jnp.ndarray],
+    K_mom: int,
+    weight: float,
+) -> jnp.ndarray:
+    """Penalty Σ_μ Σ_{k=1}^{K_mom} |Tr(U_μ^k) / N|² — enforces center-symmetric
+    single-matrix moment structure.
+
+    At the TEK master field for untwisted EK at strong coupling, eigenvalues of
+    U_μ are uniform on the circle and all moments Tr(U_μ^k)/N vanish for k ≥ 1
+    (center symmetry). For the full-U(N) ansatz (eigenvalues unconstrained),
+    this penalty actively drives the spectrum toward uniform.
+
+    For the orientation ansatz, Tr(U_μ^k)/N = Tr(Γ^k)/N = 0 automatically for
+    k not divisible by L (and = 1 when L | k), so the penalty is 0 for k < L.
+    """
+    if weight == 0.0 or K_mom == 0:
+        return jnp.zeros((), dtype=jnp.float64)
+    N = U_list[0].shape[0]
+    total = jnp.zeros((), dtype=jnp.float64)
+    for U in U_list:
+        Uk = jnp.eye(N, dtype=jnp.complex128)
+        for _ in range(K_mom):
+            Uk = Uk @ U
+            tr_k = jnp.trace(Uk) / N
+            total = total + jnp.abs(tr_k) ** 2
+    return weight * total
+
+
 def make_mm_loss_fn(
     loop_sys: LoopSystem,
     Gamma: jnp.ndarray,
@@ -175,6 +230,8 @@ def make_mm_loss_fn(
     ansatz: str,
     anchor: str = "none",
     anchor_weight: float = 1.0,
+    moment_weight: float = 0.0,
+    moment_K: int = 2,
 ) -> MMLossFn:
     """Build a JIT-compiled MM loss callable.
 
@@ -246,9 +303,15 @@ def make_mm_loss_fn(
         diffs = w - targets
         return anchor_weight * jnp.sum(diffs ** 2)
 
+    def _moment_term(params: list[jnp.ndarray]) -> jnp.ndarray:
+        if moment_weight == 0.0 or moment_K == 0:
+            return jnp.zeros((), dtype=jnp.float64)
+        U = _build_U(params)
+        return _moment_anchor_term(U, moment_K, moment_weight)
+
     def _loss(params: list[jnp.ndarray], lam: jnp.ndarray) -> jnp.ndarray:
         w = _wilson_vec(params)
-        return _mm_residual(w, lam) + _anchor_term(w, lam)
+        return _mm_residual(w, lam) + _anchor_term(w, lam) + _moment_term(params)
 
     loss_jit = jit(_loss)
     grad_jit = jit(grad(_loss, argnums=0))
@@ -320,6 +383,8 @@ def optimize_tek_mm(
     verbose: bool = True,
     anchor: str = "none",
     anchor_weight: float = 1.0,
+    moment_weight: float = 0.0,
+    moment_K: int = 2,
 ) -> MMOptResult:
     """Run Adam on the MM-loss (+ optional supervised anchor), starting from a
     random or supplied init.
@@ -345,6 +410,7 @@ def optimize_tek_mm(
     mm = make_mm_loss_fn(
         loop_sys, Gamma, z, D, N, ansatz,
         anchor=anchor, anchor_weight=anchor_weight,
+        moment_weight=moment_weight, moment_K=moment_K,
     )
 
     if init_params is None:

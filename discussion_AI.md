@@ -10,6 +10,82 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-23: R8 — Toeplitz-PSD automatic; center-moment anchor fixes symmetry-breaking (Apr 12, 2026)
+
+### Why classical Toeplitz-PSD is trivial in our setup
+
+The Toeplitz-PSD positivity constraint used in the Kazakov-Zheng bootstrap states that the Toeplitz moment matrix M[i,j] = Tr(U_μ^{i-j})/N (with W_{-k} = conj(W_k)) is PSD. For OUR parametrization, the moments come from actual unitary matrices U_μ, which automatically produce PSD moment matrices (the moments are the Fourier coefficients of a positive atomic measure on the unit circle). Adding a PSD penalty does nothing.
+
+We implemented `_toeplitz_moment_matrix(U, K)` for diagnostics but it confirms this observation: PSD is not the right lever in matrix-parametrized TEK.
+
+### What IS meaningful: center-moment anchor
+
+A genuinely nontrivial single-matrix constraint is
+
+    Σ_μ Σ_{k=1}^{K_mom} |Tr(U_μ^k) / N|²   →   0
+
+which pins the first K_mom moments of U_μ to zero. For the untwisted-EK master field at strong coupling (center-symmetric, uniform eigenvalue density on the circle), these moments vanish identically. For the orientation ansatz, Tr(Γ^k) = 0 for k < L automatically; for the full ansatz, the constraint actively pushes the spectrum toward uniform.
+
+Implemented as `moment_weight` + `moment_K` parameters in `make_mm_loss_fn` / `optimize_tek_mm`.
+
+### Strong new finding: MM-only breaks center symmetry
+
+At D=2 N=9 untwisted EK λ=5 with full ansatz:
+
+| config | W[plaq] | W[2×1] | W[2×2] | Σ\|Tr(U)/N\|² | mm_loss |
+|---|---|---|---|---|---|
+| GW target | 0.1000 | 0.0100 | 0.0001 | 0 | 0 |
+| MM only | +0.1015 | +0.0150 | −0.073 | **2.96e−01** | 8e−32 |
+| MM + area_law(0.1) | +0.1008 | +0.0103 | +0.071 | **1.49e−01** | 1.2e−2 |
+| MM + moment(K=2, w=1) | +0.1014 | +0.0136 | −0.087 | 3.1e−33 | 1.4e−31 |
+| MM + moment(K=4, w=1) | +0.1012 | +0.0121 | −0.037 | 4.6e−33 | 1.3e−31 |
+| MM + moment(K=4, w=10) | +0.1008 | +0.0083 | −0.143 | 4.0e−33 | 3.8e−31 |
+| MM + both (area 0.1, mom 10) | +0.1070 | +0.0129 | +0.089 | 3.2e−05 | 7.7e−2 |
+
+**MM alone settles into a center-symmetry-broken vacuum** (Σ\|P_μ\|² ≈ 0.3 → \|P_μ\| ≈ 0.4 per matrix — substantial breaking). Even the area-law anchor can't rescue this (the W[plaq] = 1/(2λ) target doesn't directly constrain single-matrix traces). Only the explicit moment anchor forces Tr(U_μ^k) → 0 and restores the center-symmetric phase.
+
+MM-only + center-broken matrices happens to give reasonable W[plaq], W[2×1] — a coincidence. Physically, we must preserve Z_N for the TEK reduction to be valid at N=∞, so the moment anchor is not optional, it's required.
+
+### What's still wrong
+
+Even with both anchors active:
+- ✓ W[plaq] ≈ 0.107 (7% err vs GW 0.100)
+- ✓ W[2×1] ≈ 0.013 (30% err vs GW² 0.010)
+- ✓ Center symmetry (Σ\|Tr\|² ≈ 3e−5)
+- ✗ W[2×2] ≈ 0.089 (900× GW⁴ = 10⁻⁴)
+
+W[2×2] is resistant. This is the same pattern as R7: moving from area 2 to area 4 breaks the fit. Root cause: our TEK matrices at N=9 have high-order correlations between U_1 and U_2 that don't match the area-law eigenvalue-density structure. Center symmetry (single-matrix) is enforced but large-loop CORRELATION isn't.
+
+### R8 status
+
+**Resolved with an important caveat.** Toeplitz-PSD is trivially satisfied and adds nothing; but the "moral equivalent" — center-moment anchor — is both nontrivial and essential. It prevents the spontaneous center-symmetry breaking that MM-only produces.
+
+### What remains (R9)
+
+R6 (classical saddle) → Impl-21 partial; R7 (MM underdetermined) → Impl-22 partial for small loops; R8 (positivity) → this entry, cures symmetry breaking but doesn't close the gap at area ≥ 4.
+
+The remaining gap is **large-loop correlations between multiple matrices**. Neither MM candidate D nor any soft-constraint loss we've tried shapes the JOINT eigenvalue/eigenvector correlation of U_1 and U_2 strongly enough. Options:
+1. Higher-order MM equations (expensive to derive).
+2. Larger N (may reduce finite-N effects on W[2×2]).
+3. Pivot to full Kazakov-Zheng SDP on W[C] directly (loses the matrix-master-field narrative).
+4. Accept current accuracy and report results at strong coupling, small loops only.
+
+### Phase 3 risk status (updated)
+
+| Risk | Status |
+|------|--------|
+| R1 D=4 k=1 center-symmetry | deferred |
+| R2 rectangular Wilson loop | resolved (Impl-16) |
+| R3 sign conventions | resolved |
+| R4 orientation-only sufficiency | resolved (Impl-18) |
+| R5 Γ spectrum mismatch | resolved (Impl-17) |
+| R6 classical action misses master field | partial (Impl-21) — MM fixes it |
+| R7 MM underdetermined | partial (Impl-22) — anchor fixes small loops |
+| R8 Toeplitz positivity | **resolved (this entry)** — Toeplitz trivial; center-moment anchor nontrivial and fixes SSB |
+| R9 multi-matrix large-loop correlation | **NEW** — open |
+
+---
+
 ## Implementation-22: R7 anchor — area-law anchor fixes small loops; breaks for area ≥ 4 (Apr 12, 2026)
 
 ### What was added
