@@ -988,33 +988,43 @@ def test_build_forward_link_ops_v2_shape():
 
 @pytest.mark.integration
 def test_phase_a_gw_strong_coupling_converges():
-    """D=1, L=6, lam=5: recover w_1 = 0.1, w_k = 0 for k>=2 via unitarity + supervised."""
+    """D=1 L=6 lam=5 via v2 exp-Hermitian ansatz: w_1 = 0.1, w_2 = 0 to 1e-2.
+
+    No unitarity term (automatic from expm(i Ĥ)); supervised moment-matching
+    only.
+    """
+    from cuntz_bootstrap.hermitian_operator import (
+        assemble_unitary as _assemble_unitary,
+    )
+    from cuntz_bootstrap.hermitian_operator import (
+        init_hermitian_params as _init_hermitian_params,
+    )
+
     f = CuntzFockJAX(n_labels=1, L_trunc=6)
     lam = 5.0
     w_exact = gw_moments(lam=lam, K=6)
 
     def loss_fn(params, lam_):
-        U = assemble_master_operator(params[0], f)
-        I = jnp.eye(f.dim, dtype=jnp.complex128)
-        L_unit = jnp.sum(jnp.abs(U @ U.conj().T - I) ** 2)
+        U = _assemble_unitary(params[0], f)
         v = f.vacuum_state()
         L_sup = jnp.zeros((), dtype=jnp.float64)
         for k in range(1, 7):
             v = U @ v
             wk = jnp.real(v[0])
             L_sup = L_sup + (wk - float(w_exact[k])) ** 2
-        return L_unit + L_sup
+        return L_sup
 
-    p0 = init_master_operator_params(n_matrices=1, fock=f, seed=0, scale=0.05)
+    p0 = _init_hermitian_params(n_matrices=1, fock=f, seed=0, scale=0.05)
     res = optimize_cuntz(
         loss_fn=loss_fn, params0=p0, lam=lam,
         n_steps=3000, lr=5e-3, warmup=100, log_every=500, verbose=False,
     )
 
-    U = assemble_master_operator(res.params[0], f)
+    U = _assemble_unitary(res.params[0], f)
     I = jnp.eye(f.dim, dtype=jnp.complex128)
     unit_err = float(jnp.sqrt(jnp.sum(jnp.abs(U @ U.conj().T - I) ** 2)))
-    assert unit_err < 1e-2, f"unitarity error {unit_err} too large"
+    # Unitarity is automatic with exp-Hermitian (Padé gives ~1e-10)
+    assert unit_err < 1e-6, f"unitarity error {unit_err} too large"
 
     v = f.vacuum_state()
     for k in range(1, 3):
