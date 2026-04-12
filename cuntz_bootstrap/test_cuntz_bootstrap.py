@@ -460,6 +460,77 @@ def test_default_area_law_target_plaquette():
 
 
 # -------------------------------------------------------------------------
+# v2 Task 5: Cyclicity
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.cyclicity import (  # noqa: E402
+    build_cyclicity_test_loops,
+    cyclicity_loss,
+)
+
+
+@pytest.mark.unit
+def test_build_cyclicity_test_loops_min_length():
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    loops = build_cyclicity_test_loops(loop_sys, min_length=3)
+    for C in loops:
+        assert len(C) >= 3
+    # Should contain the length-4 plaquette and longer loops
+    assert any(len(C) == 4 for C in loops)
+
+
+@pytest.mark.unit
+def test_cyclicity_loss_identity_zero():
+    """Û = I → W[any loop] = 1 → all cyclic rotations equal → loss = 0."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    test_loops = build_cyclicity_test_loops(loop_sys, min_length=3)
+    loss = cyclicity_loss([I, I], test_loops, f, D=2)
+    assert float(loss) < 1e-20
+
+
+@pytest.mark.integration
+def test_cyclicity_loss_random_nonzero():
+    """Generic random h gives nonzero cyclicity residuals."""
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    test_loops = build_cyclicity_test_loops(loop_sys, min_length=3)
+    params = _init_v2(n_matrices=2, fock=f, seed=3, scale=0.3)
+    U_list = _build_v2(params, fock=f)
+    loss = cyclicity_loss(U_list, test_loops, f, D=2)
+    assert float(loss) > 1e-5
+
+
+@pytest.mark.integration
+def test_cyclicity_differentiable():
+    """jax.grad through cyclicity_loss is finite."""
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    test_loops = build_cyclicity_test_loops(loop_sys, min_length=3)
+
+    def scalar(ps):
+        U_list = _build_v2(ps, fock=f)
+        return cyclicity_loss(U_list, test_loops, f, D=2)
+
+    params = _init_v2(n_matrices=2, fock=f, seed=5, scale=0.1)
+    val, grads = jax.value_and_grad(scalar)(params)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
