@@ -484,3 +484,194 @@ def test_optimize_cuntz_mm_loss_reduces():
         n_steps=100, lr=5e-3, warmup=10, log_every=50, verbose=False,
     )
     assert res.final_loss < init_loss
+
+
+# -------------------------------------------------------------------------
+# Task 8: Phase A — Gross-Witten gate
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.gw_validation import gw_moments  # noqa: E402
+
+
+@pytest.mark.unit
+def test_gw_moments_strong_coupling():
+    """Strong coupling (lam >= 1): w_1 = 1/(2 lam), w_{k>=2} = 0."""
+    for lam in [1.0, 2.0, 5.0, 10.0]:
+        w = gw_moments(lam=lam, K=4)
+        assert float(w[0]) == 1.0
+        assert abs(w[1] - 1.0 / (2.0 * lam)) < 1e-12
+        for k in [2, 3, 4]:
+            assert abs(w[k]) < 1e-12
+
+
+@pytest.mark.unit
+def test_gw_moments_weak_coupling_closed_forms():
+    """Weak coupling (lam < 1): w_1 = 1 - lam/2, w_2 = (1 - lam)^2."""
+    for lam in [0.3, 0.5, 0.8]:
+        w = gw_moments(lam=lam, K=2)
+        assert abs(w[1] - (1.0 - lam / 2.0)) < 1e-9
+        assert abs(w[2] - (1.0 - lam) ** 2) < 1e-9
+
+
+# -------------------------------------------------------------------------
+# v2 Task 2: Hermitian operator + expm assembly
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.hermitian_operator import (  # noqa: E402
+    assemble_hermitian,
+    assemble_unitary,
+    init_hermitian_params,
+)
+from cuntz_bootstrap.hermitian_operator import (  # noqa: E402
+    build_forward_link_ops as build_forward_link_ops_v2,
+)
+
+
+@pytest.mark.unit
+def test_init_hermitian_params_shape():
+    """Param vector per matrix is length d_L complex128."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    params = init_hermitian_params(n_matrices=2, fock=f, seed=0)
+    assert len(params) == 2
+    for p in params:
+        assert p.shape == (f.dim,)
+        assert p.dtype == jnp.complex128
+
+
+@pytest.mark.unit
+def test_assemble_hermitian_is_hermitian():
+    """H = Σ (h_w C_w + h_w* A_w) is Hermitian for any h."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_hermitian_params(n_matrices=1, fock=f, seed=1, scale=0.3)
+    H = assemble_hermitian(params[0], fock=f)
+    err = float(jnp.max(jnp.abs(H - H.conj().T)))
+    assert err < 1e-12, f"Hermiticity violation {err}"
+
+
+@pytest.mark.unit
+def test_assemble_hermitian_zero_gives_zero():
+    """h = 0 → Ĥ = 0."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    h = jnp.zeros(f.dim, dtype=jnp.complex128)
+    H = assemble_hermitian(h, fock=f)
+    assert float(jnp.max(jnp.abs(H))) < 1e-15
+
+
+@pytest.mark.unit
+def test_assemble_unitary_at_zero_is_identity():
+    """h = 0 → expm(i·0) = I."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    h = jnp.zeros(f.dim, dtype=jnp.complex128)
+    U = assemble_unitary(h, fock=f)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    err = float(jnp.max(jnp.abs(U - I)))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_assemble_unitary_is_unitary():
+    """Random h → Û is unitary to machine precision."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_hermitian_params(n_matrices=1, fock=f, seed=2, scale=0.5)
+    U = assemble_unitary(params[0], fock=f)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    err = float(jnp.max(jnp.abs(U @ U.conj().T - I)))
+    assert err < 1e-10, f"unitarity error {err}"
+
+
+@pytest.mark.unit
+def test_single_coefficient_harmonic_generator():
+    """h_{(0,)} = alpha (real) → Ĥ = alpha (â_0 + â†_0), Û matches build_unitary_gaussian."""
+    L = 4
+    f = CuntzFockJAX(n_labels=1, L_trunc=L)
+    alpha = 0.4
+    # Index of word (0,) in fock.basis (should be index 1)
+    idx = f.basis_to_idx[(0,)]
+    h = jnp.zeros(f.dim, dtype=jnp.complex128).at[idx].set(alpha)
+    H = assemble_hermitian(h, fock=f)
+    # Expected: alpha (â†_0 + â_0)
+    expected_H = alpha * (f.adag[0] + f.a[0])
+    err_H = float(jnp.max(jnp.abs(H - expected_H)))
+    assert err_H < 1e-12
+
+    # Cross-check Û against master_field/cuntz_fock.build_unitary_gaussian
+    from master_field.cuntz_fock import CuntzFockSpace as NumpyFock
+
+    nf = NumpyFock(n_matrices=1, max_length=L)
+    U_ref = nf.build_unitary_gaussian(alpha, matrix_idx=0)
+    U = assemble_unitary(h, fock=f)
+    err_U = float(jnp.max(jnp.abs(U - jnp.asarray(U_ref))))
+    # Tolerance a bit looser because of different impls (scipy expm vs jax eigh)
+    assert err_U < 1e-10, f"Phase 0 cross-check failed: err={err_U}"
+
+
+@pytest.mark.unit
+def test_unitary_differentiable_through_expm():
+    """jax.value_and_grad on a scalar built from Û works."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+
+    def scalar(h):
+        U = assemble_unitary(h, fock=f)
+        return jnp.real(jnp.trace(U))
+
+    params = init_hermitian_params(n_matrices=1, fock=f, seed=3, scale=0.1)
+    val, grad = jax.value_and_grad(scalar)(params[0])
+    assert bool(jnp.isfinite(val))
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    # Gradient should be nonzero for generic h
+    assert float(jnp.max(jnp.abs(grad))) > 0.0
+
+
+@pytest.mark.unit
+def test_build_forward_link_ops_v2_shape():
+    """build_forward_link_ops returns D unitary matrices of shape (d, d)."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_hermitian_params(n_matrices=2, fock=f, seed=0)
+    Us = build_forward_link_ops_v2(params, fock=f)
+    assert len(Us) == 2
+    for U in Us:
+        assert U.shape == (f.dim, f.dim)
+
+
+# -------------------------------------------------------------------------
+# v1 Task 8: Phase A — Gross-Witten gate (LEGACY; superseded by v2 Task 9)
+# -------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_phase_a_gw_strong_coupling_converges():
+    """D=1, L=6, lam=5: recover w_1 = 0.1, w_k = 0 for k>=2 via unitarity + supervised."""
+    f = CuntzFockJAX(n_labels=1, L_trunc=6)
+    lam = 5.0
+    w_exact = gw_moments(lam=lam, K=6)
+
+    def loss_fn(params, lam_):
+        U = assemble_master_operator(params[0], f)
+        I = jnp.eye(f.dim, dtype=jnp.complex128)
+        L_unit = jnp.sum(jnp.abs(U @ U.conj().T - I) ** 2)
+        v = f.vacuum_state()
+        L_sup = jnp.zeros((), dtype=jnp.float64)
+        for k in range(1, 7):
+            v = U @ v
+            wk = jnp.real(v[0])
+            L_sup = L_sup + (wk - float(w_exact[k])) ** 2
+        return L_unit + L_sup
+
+    p0 = init_master_operator_params(n_matrices=1, fock=f, seed=0, scale=0.05)
+    res = optimize_cuntz(
+        loss_fn=loss_fn, params0=p0, lam=lam,
+        n_steps=3000, lr=5e-3, warmup=100, log_every=500, verbose=False,
+    )
+
+    U = assemble_master_operator(res.params[0], f)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    unit_err = float(jnp.sqrt(jnp.sum(jnp.abs(U @ U.conj().T - I) ** 2)))
+    assert unit_err < 1e-2, f"unitarity error {unit_err} too large"
+
+    v = f.vacuum_state()
+    for k in range(1, 3):
+        v = U @ v
+        wk = float(jnp.real(v[0]))
+        err = abs(wk - float(w_exact[k]))
+        assert err < 1e-2, (
+            f"w_{k}: got {wk}, expected {w_exact[k]}, err={err}"
+        )
