@@ -367,3 +367,69 @@ def test_wilson_loop_adjoint_convention():
     W = wilson_loop(U_list, loop=(1, -1), fock=f, D=1)
     expected = (U @ U.conj().T)[0, 0]
     assert float(jnp.abs(W - expected)) < 1e-12
+
+
+# -------------------------------------------------------------------------
+# Task 6: MM loss integration
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.mm_loss import make_cuntz_mm_loss_fn  # noqa: E402
+
+
+@pytest.mark.integration
+def test_mm_loss_fn_differentiable():
+    from cuntz_bootstrap.mm_loss import _load_loop_system
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loss_fn = make_cuntz_mm_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0, w_sup=0.0
+    )
+    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
+    val, grads = jax.value_and_grad(loss_fn, argnums=0)(params, 5.0)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+@pytest.mark.integration
+def test_mm_loss_identity_params_unitarity_zero_mm_nonzero():
+    """Identity Û gives L_unit = 0 but L_MM != 0 (W[C] = 1 violates MM)."""
+    from cuntz_bootstrap.mm_loss import _load_loop_system
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loss_fn = make_cuntz_mm_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0,
+        w_sup=0.0, return_components=True,
+    )
+    c0 = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
+    params = [c0, c0]
+    total, L_unit, L_mm, L_sup = loss_fn(params, 5.0)
+    assert float(L_unit) < 1e-18
+    assert float(L_mm) > 0.01
+
+
+@pytest.mark.integration
+def test_mm_loss_supervised_anchor_vanishes_at_target():
+    """With w_sup=1 and target = current W, L_sup ~ 0 at identity params."""
+    from cuntz_bootstrap.mm_loss import _load_loop_system
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+
+    # At identity params, all Wilson loops = 1 (empty and non-empty).
+    # Target = all ones: L_sup must be 0.
+    n_loops = loop_sys.K
+    sup_target_ones = jnp.ones(n_loops, dtype=jnp.float64)
+
+    loss_fn = make_cuntz_mm_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2,
+        w_unit=0.0, w_mm=0.0, w_sup=1.0,
+        sup_target_fn=lambda lam: sup_target_ones,
+        return_components=True,
+    )
+    c0 = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
+    params = [c0, c0]
+    _, _, _, L_sup = loss_fn(params, 5.0)
+    assert float(L_sup) < 1e-20
