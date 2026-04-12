@@ -10,104 +10,148 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
-## Discussion-25: Phase 4 — Cuntz-Fock Coefficient Bootstrap (Apr 12, 2026)
+## Discussion-25: Phase 4 — Cuntz-Fock Coefficient Bootstrap (Apr 12-13, 2026)
 
 ### The idea
 
 Invert Gopakumar-Gross (1994). GG showed the master field for any large-N
 matrix model is an operator Û in a Cuntz-Fock space, with coefficients
-determined by planar connected Green's functions. GG viewed the
-parametrization as a limitation: "to write Û explicitly requires knowing
-all connected Green's functions, tantamount to solving the theory."
-
-We make the Cuntz-Fock coefficients the UNKNOWNS and let the constraints
-(unitarity + MM loop equations) determine them. Positivity — the hardest
-constraint in the Kazakov-Zheng SDP bootstrap — is automatic because any
-operator in a Fock space gives a PSD correlation kernel by construction.
+determined by planar connected Green's functions. We make the coefficients
+the UNKNOWNS and let lattice loop equations + physical-state constraints
+determine them.
 
 ### Why this differs from Phases 0-3
 
 | Phase | Parametrization | Failure |
 |---|---|---|
-| 0 (QCD₂ single-α Gaussian) | one real coefficient | plaquette OK, larger loops wrong |
-| 1b (neural W[C]) | neural loop functional | MM alone underdetermined (Impl-14) |
-| 3 (TEK finite-N matrices) | N×N unitary matrices | R6 classical-saddle; R9 multi-matrix correlations (W[2×2] off by 900×) |
-| 4 (Cuntz-Fock coefficients) | O(d_L) polynomial coefficients | **untested — the proposal** |
+| 0 QCD₂ single-α Gaussian | one real coefficient | plaquette OK, larger loops wrong |
+| 1b neural W[C] | neural loop functional | MM alone underdetermined (Impl-14) |
+| 3 TEK finite-N matrices | N×N unitary matrices | R6 classical saddle; R9 multi-matrix correlations (W[2×2] off 900×) |
+| 4 Cuntz-Fock coefficients | O(d_L) polynomial Hermitian Ĥ coefficients | **untested — the proposal** |
 
-Works at N = ∞ directly. No Haar measure (R6 disappears). No center
-symmetry to break (R8 disappears). Positivity automatic.
+Works at N = ∞ by construction. No Haar measure (R6 disappears). No center
+symmetry to break (R8 disappears).
 
-### Parametrization (Phase 4b — polynomial)
+### Parametrization (revised after v1 critique)
 
-2D creation operators â†_1, â†_{-1}, â†_2, â†_{-2}, … â†_D, â†_{-D} on a
-Cuntz-Fock space truncated at word length L. Define 2D labels so â†_μ and
-â†_{-μ} are independent — negative direction is creation along reversed
-edge, not annihilation of forward edge.
+For lattice direction μ, with n = 2D creation labels on the Cuntz-Fock
+space truncated at word length L_trunc ≥ L_poly + 2:
 
-Û_μ = Σ_{|w|≤L} c^{(+)}_{μ,w} (â†_{w_1} ⋯ â†_{w_k})
-    + Σ_{|v|≥1, |v|≤L} c^{(-)}_{μ,v} (â_{v_k} ⋯ â_{v_1})
+    Ĥ_μ = Σ_{|w|≤L_poly} h_{μ,w} · (â†_{w_1} … â†_{w_k}) + h.c.
+    Û_μ = expm(i · Ĥ_μ)
+    Û_{-μ} = Û_μ†     (orientation reversal)
 
-Total complex coefficients per matrix: 2 d_L − 1 where
-d_L = (n^{L+1} − 1)/(n − 1) with n = 2D.
+Unitarity is automatic (expm of a Hermitian matrix is unitary in exact
+arithmetic; scipy/jax `expm` gives machine-precision unitarity in the
+truncated space).
 
-Orientation reversal symmetry Û_{-μ} = Û_μ† → D independent operators.
+### Why NOT the polynomial form Û_μ = Σ c^{(+)}_w (â†)^w + Σ c^{(-)}_v (â)^v
 
-| D | n | L | d_L | coeffs/matrix | total real params |
-|---|---|---|-----|---------------|-------------------|
-| 1 (GW) | 1 | 6 | 7 | 13 complex | 26 |
-| 2 (QCD₂) | 4 | 3 | 85 | 169 complex | 676 |
-| 3 | 6 | 2 | 43 | 85 complex | 510 |
-| 4 (QCD) | 8 | 2 | 73 | 145 complex | 1160 |
+That form was tried in v1 of the plan. Two problems:
 
-Compare Phase 3: TEK at N=49 had 2D·N² = 9604 parameters. Phase 4 is
-two orders of magnitude smaller.
+1. **EOM inconsistency at finite truncation.** The conjugate momentum Π̂
+   defined by [Π̂, Û] = |Ω⟩⟨Ω| has no finite-dimensional solution: Tr of a
+   commutator is zero, but Tr(P_Ω) = 1. So the Gopakumar-Gross EOM
+   `V'(Û) = 2 Π̂` cannot be a direct loss. Use MM loop equations — they
+   are the EOM sandwiched between specific states and are polynomial in
+   Wilson loops, which are polynomial in the coefficients.
 
-### Loss
+2. **Positivity is not the whole selection.** An arbitrary Cuntz-Fock
+   operator family with a vacuum vector does not automatically satisfy
+   cyclicity of the loop trace ⟨Ω|ABC|Ω⟩ = ⟨Ω|BCA|Ω⟩. That equality IS
+   the N = ∞ trace property, not an automatic consequence of Hilbert-space
+   positivity. Must be imposed as a loss term. Similarly reflection
+   positivity and lattice rotations/reflections (B_D).
 
-L_total = w_unit · L_unit + w_MM · L_MM [+ w_sup · L_sup]
+The exponential-Hermitian form has the right physics: Û unitary, and the
+Hermitian generator Ĥ is the natural object in GG §3.
 
-L_unit = Σ_μ ‖Û_μ Û_μ† − I‖²_F (unitarity as operator equation)
+### Loss components
 
-L_MM = Σ equations |residual|²  (Kazakov-Zheng candidate D from
-master_field/lattice.LoopSystem and master_field/mm_equations.mm_residual_staple;
-W[C] = ⟨Ω|Û_{μ_1} ⋯ Û_{μ_k}|Ω⟩ computed as e_0ᵀ product · e_0 via sweep)
+    L = w_MM · L_MM + w_cyc · L_cyc + w_RP · L_RP + w_sym · L_sym
+       [ + w_sup · L_sup ]      (optional anchor)
 
-L_sup (optional) = Σ_C |W[C] − W_GW[C]|²  (enable only if underdetermined)
+**L_MM — Makeenko-Migdal residuals (direct).** Kazakov-Zheng candidate D
+from master_field/lattice.LoopSystem. Per equation:
 
-Mirror tek_master_field's optax Adam + warmup_cosine + conj-hermitianize
-pipeline. Complex coefficients c ∈ ℂ^{…}; gradients projected by
-conjugation per Impl-19 JAX fix.
+    res(C, e) = (1/λ) Σ_{P ∋ e} W[staple(C, e, P)]
+              − c_self · W[C] − Σ_{splits} W[C_1] · W[C_2]
+
+with c_self = 2. Wilson loops W[C] = ⟨Ω|Û_{μ_1} … Û_{μ_k}|Ω⟩ = e_0ᵀ · (product
+of Û matrices) · e_0. Indirect equations (Qiao-Zheng 2601.04316) deferred
+to after direct-only evaluation.
+
+**L_cyc — cyclicity / traciality residuals.** For each loop C in a test
+set and each cyclic rotation C_k = (C[k], …, C[k-1]):
+
+    L_cyc = Σ_{C, k} |W[C_k] − W[C_0]|²
+
+Enforces ⟨Ω|·|Ω⟩ behaves like the normalized trace at N = ∞.
+
+**L_RP — reflection positivity.** Pick a reflection plane. For open paths
+p_1, …, p_K in the "positive half", build
+
+    R_{ij} = ⟨Ω| Û_{θ(p_i)}† Û_{p_j} |Ω⟩
+    L_RP   = Σ_{λ_k(R) < 0} λ_k(R)²
+
+**L_sym — lattice symmetries.** For each σ ∈ B_D (hyperoctahedral):
+
+    L_sym = Σ_{C, σ} |W[σ(C)] − W[C]|²
+
+**L_sup (optional).** Σ_C |W[C] − W_GW_area_law[C]|² on simple loops.
+Disabled by default; enabled only if unsupervised losses underdetermine
+the solution.
 
 ### Priority order
 
-1. Cuntz-Fock infrastructure (JAX rebuild of master_field/cuntz_fock.py).
-2. **Phase A — Gross-Witten** (D=1, n=1 actually n=2 for u/u†, L=6).
-   Loss = unitarity + GW moment recursion.
-   Gate: w_1 = 1/(2λ) at λ≥1 to <10⁻³, w_2 = 0 to <10⁻³.
-3. **Phase B — QCD₂** (D=2, L=3, d=85). THE CRITICAL TEST. Loss =
-   unitarity + MM. Gate: W[□] = 1/(2λ), W[2×1] = W[□]², W[2×2] = W[□]⁴
-   each to < 1% at λ=5. Phase 3 failed W[2×2] at 900×; a Phase 4 pass
-   is the key empirical result.
-4. **Phase C — D=3** (L=2, d=43). Compare to Kazakov-Zheng (2203.11360)
-   bootstrap bounds and published MC.
-5. **Phase D — D=4** (L=2, d=73). The target. First explicit SU(∞)
-   master-field construction for 4D lattice YM.
+1. Cuntz-Fock infrastructure (JAX).
+2. **Phase A — Gross-Witten** (D=1, n_labels=1, L_poly=6; 13 real DOFs).
+   Loss = supervised moment-matching ONLY (calibration). Gate at strong
+   coupling (λ ≥ 1): max moment error < 1e-2.
+3. **Phase B — QCD₂** (D=2, L_poly=3, d=85; 338 real DOFs). THE CRITICAL
+   TEST. Loss = L_MM + L_cyc + L_RP + L_sym (unsupervised). Gate: W[□],
+   W[2×1], W[2×2], figure-8 factorization each within 1% of GW area law
+   at λ=5. Phase 3 failed W[2×2] at 900×; a Phase 4 pass here is the key
+   empirical result.
+4. **Phase C — D=3** (L_poly=2, d=43). Compare to Kazakov-Zheng bootstrap
+   bounds (arXiv:2203.11360) and published MC.
+5. **Phase D — D=4** (L_poly=2, d=73). The target.
+
+### Parameter counts
+
+| D | n=2D | L_poly | d_L | real DOFs / matrix | total real DOFs |
+|---|------|--------|-----|---------------------|-----------------|
+| 1 (GW) | 1 | 6 | 7 | 13 | 13 |
+| 2 (QCD₂) | 4 | 3 | 85 | 169 | 338 |
+| 3 | 6 | 2 | 43 | 85 | 255 |
+| 4 (QCD) | 8 | 2 | 73 | 145 | 580 |
+
+Two orders of magnitude below Phase 3 (TEK at N=49 had 9604 params). The
+Fock space truncation L_trunc must be ≥ L_poly + 2 so MM staples (loops of
+length |C|+2) stay within basis.
 
 ### The one risk
 
-MM + unitarity might be underdetermined even with Fock structure (Phase 1b
-observed this for W[C] variables alone). If Phase B shows drift, fall back
-to the supervised anchor (proven in Phase 1b R4). If anchor still fails,
-additional physical principle needed (extremality, clustering, free
-entropy max). Phase B's outcome decides.
+MM + cyc + RP + sym might still be underdetermined. Fall back to supervised
+anchor at strong-coupling GW area law (proven in Phase 1b R4). If still
+fails: indirect MM equations (Qiao-Zheng). Else additional physical
+principle needed (extremality, clustering, free-entropy max).
 
-### Deliverable
+### Deliverables
 
-Subfolder `cuntz_bootstrap/` with: fock.py, master_operator.py,
-unitarity.py, wilson_loops.py, mm_loss.py, optimize.py, train.py, plus
+Subfolder `cuntz_bootstrap/` with fock.py, hermitian_operator.py,
+wilson_loops.py, cyclicity.py, reflection_positivity.py, lattice_symmetry.py,
+mm_loss.py, total_loss.py, optimize.py, gw_validation.py, train.py, plus
 phase_a_gw.py, phase_b_qcd2.py, phase_c_d3.py (stretch), phase_d_d4.py
 (stretch). Physics reference `reference/cuntz_bootstrap.md`. Cluster
 script `cluster/submit_cuntz.pbs`.
+
+### Status snapshot (Apr 13, 2026)
+
+v1 scaffolding (Tasks 1-7) committed on main; strong-coupling Phase A at
+λ ∈ {10, 5, 2} passes at 1e-9 moment error (calibration successful).
+v2 switches to the exponential-Hermitian form and adds cyc + RP + sym
+losses. v2 Task 1 is this memo update.
 
 ---
 
