@@ -10,6 +10,70 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-15: Phase 3 — Direct Optimization of the TEK Master Field (Apr 12, 2026)
+
+### Motivation
+
+At N = ∞ the path integral is dominated by a single saddle — the master field. Monte Carlo samples *around* the saddle with O(1/N²) and O(1/√T) noise. Direct gradient-descent optimization finds the saddle itself: no thermalization, no autocorrelations, no statistical noise. For computing the master field this is strictly better than MC if it converges.
+
+Nobody has solved the Twisted Eguchi-Kawai (TEK) model by direct optimization. Phase 3 attempts this. If Phase D (TEK D = 4 at N = 289) succeeds with plaquette matching published MC < 1 %, the result is the first explicit construction of the SU(∞) master field for 4D lattice Yang-Mills — a problem open since Witten (1979) / Gopakumar-Gross (1994). Direction B of the Discussion-11 roadmap.
+
+### Model
+
+TEK reduces D-dimensional SU(N) lattice YM to D unitary N×N matrices at a single site with action
+
+    S = −(N/λ) Σ_{μ<ν} Re (1/N) Tr(z_{μν} U_μ U_ν U_μ† U_ν†)
+
+and path-integral weight exp(−S). The twist z_{μν} = exp(2πi n_{μν}/N) with symmetric flux n_{μν} = k·L (on twisted planes, N = L² with L prime) pins Z_N^D center symmetry and restores volume independence, so N = ∞ TEK observables equal the infinite-volume theory.
+
+### Master Field Ansatz
+
+Center-symmetric eigenvalues are locked to the N-th roots of unity:
+
+    U_μ = Ω_μ · Γ · Ω_μ†,   Γ = diag(1, ω, ω², …, ω^{N-1}),   ω = e^{2πi/N}
+
+Gauge-fix Ω_1 = I; parametrize Ω_μ = exp(i H_μ) with H_μ Hermitian for μ ≥ 2. The Haar measure, restricted to the coadjoint orbit {g Γ g†}, is proportional to the Vandermonde of the eigenvalues — constant since eigenvalues are fixed. Total parameters: (D − 1) · N².
+
+### Physics Risks (R1–R4, tracked in the plan)
+
+- **R1 — Center-symmetry breaking at D = 4, k = 1.** Observed for N ≥ 100 (hep-th/0612097). Cure: modified flux k ≈ L/2 per González-Arroyo-Okawa 2010 (arXiv:1005.1981). Safe for D = 2, D = 3 with k = 1.
+- **R2 — Rectangular Wilson loop twist phase f(R,T).** Nontrivial from Heisenberg non-commutativity. Must be transcribed from PRD 27 (1983) eq. (3.5) or arXiv:1708.00841 before computing W[R×T]. Currently gated as `NotImplementedError`.
+- **R3 — Sign conventions.** Standardized: loss = −Σ_{μ<ν} Re[z_{μν} Tr(U_μ U_ν U_μ† U_ν†)/N] / N_pairs. No λ inside the loss.
+- **R4 — Orientation-only vs full U(N).** If the ansatz cannot produce coupling-dependent plaquette (classical saddle ≠ master field), enlarge to U_μ = exp(i M_μ) with M_μ Hermitian, D · N² parameters, no fixed eigenvalues.
+
+### Implementation
+
+New subfolder `tek_master_field/` with seven Python modules: `tek.py` (core: clock matrix, twist, link builder, action), `optimize.py` (Adam + warmup_cosine schedule + coupling continuation), `observables.py` (plaquette, Polyakov, eigenvalue density; rectangular gated), `gross_witten.py` (Phase A sanity check), `train.py` (CLI), `config.py`, `test_tek.py` (39 pytest tests). JAX + optax with float64, H_μ re-Hermitianized after each gradient step.
+
+Infrastructure mirrors `master_field/`: float64 config, optax chain pattern from `neural_master_field.py:436`, training-step JIT pattern from `:468`, coupling continuation from `:597`, pytest marks from `test_qcd2.py`.
+
+### Phases
+
+- **Phase A — Gross-Witten** (1-matrix unitary; not TEK). Path C: parametrize support endpoint a, find by normalization, verify exact w_1, w_2. **Gate: err < 10⁻⁶.**
+- **Phase B — untwisted EK, D = 2.** First test of the orientation-only ansatz. If it fails to develop a coupling-dependent saddle, adopt R4 fallback.
+- **Phase C — TEK, D = 2.** First real TEK computation. Compare to exact GW strong coupling at N = 49, 121, 289. **Gate: plaquette within 0.5 % of reference.**
+- **Phase D — TEK, D = 4** (the target). Compare to González-Arroyo–Okawa MC at N = 289, β = 0.356. **Gate: plaquette within 1 % of MC.**
+- **Phase E — N → ∞ extrapolation.** Fit O(N) = O(∞) + c₁/N² + c₂/N⁴ from N ∈ {49, 121, 289, 529}.
+
+### Current status (end of this session)
+
+- Scaffolding: `tek_master_field/` created, `__init__.py`, `conftest.py`, `results/` (gitignored).
+- **Phase A gate PASSES.** At t ∈ {0.3, 0.5, 0.8, 1.0, 1.2, 2.0, 5.0}: worst |w_1 − exact| = 5.5 × 10⁻¹², worst |w_2 − exact| = 1.6 × 10⁻¹³. Well below the 10⁻⁶ gate.
+- **Core infrastructure works end-to-end.** 39/39 pytest tests pass. Smoke test: D = 2, N = 9, k = 1 continuation over λ = {10, 5, 2, 1} completes in 3.8 s, JIT + optax update + hermitianize stable, link matrices remain unitary to 10⁻¹⁰.
+- Reference doc `reference/tek_master_field.md` written (symmetric twist, center-symmetry caveat, open question about classical vs quantum saddle, benchmark MC table, bibliography).
+- Cluster script `cluster/submit_tek.pbs` for N = 289 runs (mirrors `cluster/submit.pbs`).
+- Phases B–E deferred to subsequent implementations. Phase B is the first test of R4.
+
+### What this delivers
+
+The infrastructure to run direct-optimization TEK computations at any D ∈ {2, 3, 4} and any N = L² with L prime, up to the center-symmetry ansatz assumption. The code is the direct executable of the plan in `/Users/dz1614/.claude/plans/piped-twirling-narwhal.md`. Next concrete step is Phase B: the orientation-only ansatz will either produce a coupling-dependent saddle (confirming the Gopakumar-Gross "axial-gauge Gaussian" picture in a TEK context), OR fail to do so (triggering R4 fallback to the full U(N) parametrization). Phase B is a two-matrix numerical experiment; its outcome decides the architecture for Phases C and D.
+
+### References
+
+Eguchi-Kawai 1982 (original). González-Arroyo-Okawa 1983 PRD 27 (original TEK + eq. 3.5 for rectangular loops). González-Arroyo-Okawa 2010 arXiv:1005.1981 (modified flux). García Pérez-González-Arroyo-Okawa 2017 arXiv:1708.00841 (perturbative Wilson loops with twist). Teper et al. 2006 hep-th/0612097 (center-symmetry breaking). Gopakumar-Gross hep-th/9411021 §1 (spacetime-independent master field). Local: `reference/tek_master_field.md` (full bibliography).
+
+---
+
 ## Implementation-14: Phase 1 Steps 2–5 — LoopSystem, Neural Model, D=2 Training (Apr 12, 2026)
 
 ### What was built

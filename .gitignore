@@ -19,6 +19,8 @@ Thumbs.db
 
 # Results (large binary files — commit selectively)
 results/*.npy
+**/results/*.npy
+**/results/*.json
 
 # Claude Code personal config
 CLAUDE.local.md

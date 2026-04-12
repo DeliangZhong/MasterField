@@ -1,0 +1,59 @@
+#!/bin/bash
+#PBS -N tek_master_field
+#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o tek_master_field.log
+
+# ── Configuration ──────────────────────────────────────────
+# Edit these for your run. See reference/tek_master_field.md for physics.
+MODEL="tek"              # gw, ek, or tek
+D="4"                    # spacetime dimension: 2, 3, or 4
+N="289"                  # matrix size: L² with L prime (49=7², 121=11², 289=17², 529=23²)
+K="8"                    # twist flux (for D=4, recommend k≈L/2 — L=17 → k=8; L=11 → k=5)
+LAM="1.0"                # 't Hooft coupling (single-λ mode)
+SCHEDULE="20.0,10.0,5.0,3.0,2.0,1.5,1.0,0.8,0.6,0.5,0.4,0.3"
+N_STEPS="5000"           # Adam steps per λ-stage
+LR="1e-2"
+SEED="42"
+
+# ── Environment setup ─────────────────────────────────────
+cd $PBS_O_WORKDIR
+
+module load jax/0.4.25-gfbf-2023a
+module load SciPy-bundle/2023.07-gfbf-2023a
+module load matplotlib/3.7.2-gfbf-2023a 2>/dev/null || true
+
+# Install optax into user site-packages if missing
+python3 -c "import optax" 2>/dev/null || pip install --user optax
+
+# JAX CPU configuration (comment out if using GPU)
+export JAX_PLATFORM_NAME=cpu
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
+
+# ── Run ───────────────────────────────────────────────────
+cd tek_master_field
+
+echo "============================================================"
+echo "  TEK — ${MODEL}, D=${D}, N=${N}, k=${K}"
+echo "  schedule: ${SCHEDULE}"
+echo "  steps/stage: ${N_STEPS}, lr=${LR}, seed=${SEED}"
+echo "  Host: $(hostname), Start: $(date)"
+echo "============================================================"
+
+mkdir -p results
+
+python3 train.py \
+    --model ${MODEL} \
+    --D ${D} \
+    --N ${N} \
+    --k ${K} \
+    --schedule "${SCHEDULE}" \
+    --n_steps ${N_STEPS} \
+    --lr ${LR} \
+    --seed ${SEED} \
+    --output_dir results
+
+echo "============================================================"
+echo "  Finished: $(date)"
+echo "============================================================"
