@@ -10,6 +10,83 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-21: Phase B-MM — MM loss works at strong coupling; underdetermined at weak (Apr 12, 2026)
+
+### What was built
+
+`tek_master_field/mm_loss.py`: computes Wilson loops W[C] = Re[ z_12^{signed_area_2d(C)} · Tr(Π U_{μ_i}) ] / N from TEK matrices over a precomputed LoopSystem (imported from `master_field/lattice.py`), evaluates Makeenko-Migdal candidate-D residuals, returns their sum-of-squares. `optimize_tek_mm` plugs into Adam + cosine schedule with the same conj+hermitianize gradient projection used in the classical optimizer. Works for both orientation and full ansätze; D=2 only for now (twist factor uses signed_area_2d).
+
+`tek_master_field/phase_b_mm.py`: runs the MM optimizer across λ ∈ {10, 5, 2, 1.5, 1.2, 1, 0.8, 0.5} at D=2, N=9, L_max=6 with warm-starting. Records W[plaquette], W[2×1], W[2×2] vs GW strong-coupling targets (W[C] = w_+^|Area|, w_+ = 1/(2λ) or 1 − λ/2).
+
+### Result
+
+**Orientation ansatz, N=9:**
+
+| λ | W[plaq] | GW | err% | W[2×1] | GW² | mm_loss |
+|---|---|---|---|---|---|---|
+| 10 | +0.049 | 0.050 | 1.1% | +0.049 | 0.0025 | 1.1e-3 |
+| 5 | +0.099 | 0.100 | 1.1% | +0.099 | 0.010 | 1.3e-2 |
+| 2 | +0.291 | 0.250 | 16.5% | +0.291 | 0.063 | 2.3e-1 |
+| 1.5 | +0.500 | 0.333 | 50.0% | +0.500 | 0.111 | 1.5e-7 |
+| 1 | +1.000 | 0.500 | 100% | +1.000 | 0.250 | 2.8e-8 |
+
+Plaquette matches GW to 1.1% at strong coupling (λ ≥ 5). Deviates at intermediate. Orientation mode's constraint (eigenvalues = L-th roots L-fold-degenerate) produces the degenerate "all W[C] = w_+^MM" family that satisfies MM with constant Wilson loops — the candidate-D self-consistent solution w_+^MM = λ − √(λ²−1), which coincides with w_+^GW only to leading order in 1/λ.
+
+**Full ansatz, N=9:**
+
+| λ | W[plaq] | GW | err% | W[2×1] | GW² | mm_loss |
+|---|---|---|---|---|---|---|
+| 10 | +0.0502 | 0.0500 | 0.4% | +0.0035 | 0.0025 | 7.5e-12 |
+| 5 | +0.1014 | 0.1000 | 1.4% | +0.0136 | 0.0100 | 1.0e-31 |
+| 2 | +0.2728 | 0.2500 | 9.1% | +0.0912 | 0.0625 | 1.3e-31 |
+| 1.5 | +0.3966 | 0.3333 | 19.0% | +0.1897 | 0.1111 | 2.8e-31 |
+
+Full-ansatz MM loss reaches MACHINE ZERO (10⁻³¹). The plaquette still matches GW to 1% at strong coupling. W[2×1] is NO LONGER identical to W[plaq] — the extra parameters let the optimizer find a non-constant Wilson-loop configuration. But W[2×1] is ~40% larger than GW's product law W[plaq]². The MM equations admit a family of solutions; our optimizer picks one that has the right plaquette but wrong larger-loop structure.
+
+### Relative to Phase B (classical action)
+
+Phase B with classical action alone gave plaquette = 1 at every λ — totally wrong for MC comparison. Phase B-MM gives plaquette tracking GW to ~1% at strong coupling — a significant physics improvement. So MM loss is definitively better than classical action, as predicted.
+
+### Relative to Phase 1b
+
+This reproduces Phase 1b's finding exactly. From Implementation-14:
+> MM equations + unitarity alone do NOT uniquely determine Wilson loop values in D=2. [...] R4 (supervised warm-start 1500 epochs, then MM-only 3000 epochs): best result. W[plaq] at λ=5 = 0.10012 vs GW 0.1 (near-exact). W[2×1] at λ=1 drifts from supervised 0.25 to 0.16 after MM refinement.
+
+Same issue, different parametrization: MM candidate D is underdetermined; uniquely pinning W[C] requires additional constraints (positivity) or a bias toward the physical solution (warm-start).
+
+### Phase 3 risk status
+
+R6 is **partially resolved**. With MM loss:
+- ✓ Classical-saddle pathology fixed: plaquette is coupling-dependent.
+- ✓ Strong-coupling plaquette matches GW to ~1%.
+- ✗ Area law W[R×T] = W[plaq]^{RT} not captured.
+- ✗ Weak coupling still unreliable.
+
+These are exactly the failure modes Phase 1b identified. Next step is to add positivity constraints (R3 from the original roadmap) or supervised warm-start at the GW strong-coupling value.
+
+### Proposal for next step
+
+Add a **Toeplitz-PSD constraint** on the Wilson loop algebra (or equivalently a supervised anchor at the plaquette to the GW strong-coupling value) as an additional loss term:
+
+    L_total = L_MM + λ_anchor · (W[plaq] − 1/(2λ))²         (supervised mode)
+    L_total = L_MM + λ_psd · barrier(−min_eig(Toeplitz))    (positivity mode)
+
+Supervised anchor is cheaper and proven in Phase 1b. Positivity is more rigorous but harder to compute. Recommend: anchor first to confirm the pipeline, then positivity to lift the anchor.
+
+### Phase 3 risk status table (updated)
+
+| Risk | Status |
+|------|--------|
+| R1 D=4 k=1 center-symmetry break | deferred |
+| R2 rectangular Wilson loop phase | resolved (Impl-16) |
+| R3 sign conventions | resolved (scaffolding) |
+| R4 orientation-only sufficiency | resolved (Impl-18) |
+| R5 Γ spectrum mismatch | resolved (Impl-17) |
+| R6 classical action misses master field | **partially resolved (this entry)** — MM correct at strong coupling, underdetermined elsewhere |
+| R7 MM alone underdetermined at D=2 | **NEW** — add positivity constraints or supervised anchor next |
+
+---
+
 ## Discussion-20: Choosing the R6 fix — Haar entropy vs MM loss vs SDP bootstrap (Apr 12, 2026)
 
 ### Context
