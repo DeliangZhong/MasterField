@@ -241,3 +241,55 @@ def test_assemble_master_operator_rejects_wrong_shape():
     f = CuntzFockJAX(n_labels=4, L_trunc=3)
     with pytest.raises(ValueError):
         assemble_master_operator(jnp.zeros(10, dtype=jnp.complex128), fock=f)
+
+
+# -------------------------------------------------------------------------
+# Task 4: Unitarity loss
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.unitarity import (  # noqa: E402
+    unitarity_loss,
+    unitarity_loss_from_params,
+)
+
+
+@pytest.mark.unit
+def test_unitarity_loss_identity_zero():
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    loss = unitarity_loss([I, I])
+    assert float(loss) < 1e-20
+
+
+@pytest.mark.unit
+def test_unitarity_loss_random_nonzero():
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    key = jax.random.PRNGKey(0)
+    k1, k2 = jax.random.split(key)
+    A = (
+        jax.random.normal(k1, (f.dim, f.dim)) + 1j * jax.random.normal(k2, (f.dim, f.dim))
+    ).astype(jnp.complex128)
+    loss = unitarity_loss([A])
+    assert float(loss) > 1.0
+
+
+@pytest.mark.unit
+def test_unitarity_loss_from_params_differentiable():
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_master_operator_params(n_matrices=2, fock=f, seed=0)
+    loss, grads = jax.value_and_grad(unitarity_loss_from_params, argnums=0)(params, f)
+    assert bool(jnp.isfinite(loss))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+        # gradient must be nonzero somewhere (loss not already at minimum)
+        assert float(jnp.max(jnp.abs(g))) > 0.0
+
+
+@pytest.mark.unit
+def test_unitarity_loss_from_identity_params_zero():
+    """c = (1, 0, ..., 0) for each matrix → Û = I → loss = 0."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    c0 = jnp.zeros(2 * f.dim - 1, dtype=jnp.complex128).at[0].set(1.0)
+    params = [c0, c0]
+    loss = unitarity_loss_from_params(params, f)
+    assert float(loss) < 1e-20
