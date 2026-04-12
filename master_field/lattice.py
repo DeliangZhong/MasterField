@@ -215,31 +215,42 @@ def plaquette_loops(D: int) -> list[tuple[int, ...]]:
 
 
 def plaquette_insertions(word: tuple[int, ...], e_idx: int, D: int) -> list[tuple[int, ...]]:
-    """Insert each plaquette containing link e at position e_idx in `word`.
+    """Replace edge e_j = ±μ at position e_idx with a 3-edge "staple" around a plaquette.
 
-    The MM equation: ∑_{P ∋ e} W[P_e ∘ C]. For link e = word[e_idx] in direction μ,
-    the plaquettes containing e are the 2(D-1) loops that start with step μ.
+    STAPLE CONVENTION (Kazakov-Zheng 2203.11360, Anderson-Kruczenski 2017):
 
-    P_e ∘ C means: replace the single step μ at position e_idx with the 4 steps
-    of the plaquette (which net to μ).
+    For edge e_j = +μ at position e_idx, and a plaquette P in the (μ, ν) plane:
+      replace (+μ) → (+ν, +μ, -ν) for ν ∈ {+ν₀} (ν₀ running over perpendicular dirs)
+      replace (+μ) → (-ν, +μ, +ν) for the opposite orientation of the plaquette
+
+    Both staples have NET DISPLACEMENT +μ (same as the replaced edge), so the
+    new loop is still closed. They differ by which side of edge e_j the plaquette
+    is attached.
+
+    For edge e_j = -μ, the staples are:
+      replace (-μ) → (+ν, -μ, -ν) and (-ν, -μ, +ν)
+
+    Returns the 2(D-1) resulting loops (in canonical form, after backtrack reduction).
+    Each is the loop with edge e_j detoured around one plaquette containing it.
     """
     if e_idx < 0 or e_idx >= len(word):
         raise IndexError(f"e_idx {e_idx} out of range for word of length {len(word)}")
-    mu = word[e_idx]
+    mu = word[e_idx]  # signed step; |mu| is direction, sign(mu) is orientation
     inserted: list[tuple[int, ...]] = []
-    # A plaquette containing link μ in direction |μ| is: (μ, ν, -μ, -ν) with ν ≠ ±|μ|.
-    # Its net displacement is μ (the first step).
-    # Sub-sequence replaces 1 step by 4.
-    for nu in range(1, D + 1):
-        if nu == abs(mu):
+    for nu_dir in range(1, D + 1):
+        if nu_dir == abs(mu):
             continue
-        for sign in (1, -1):
-            plaq = (mu, sign * nu, -mu, -sign * nu)
-            # Replacing step μ at e_idx with the plaquette preserves net displacement.
-            new_word = word[:e_idx] + plaq + word[e_idx + 1 :]
+        for nu_sign in (1, -1):
+            nu = nu_sign * nu_dir
+            # Staple: replace (mu) with (nu, mu, -nu)
+            # Net displacement: nu + mu + (-nu) = mu ✓
+            staple = (nu, mu, -nu)
+            new_word = word[:e_idx] + staple + word[e_idx + 1 :]
             reduced = reduce_backtracks(new_word)
             if reduced:
                 inserted.append(cyclic_canonical(reduced))
+            else:
+                inserted.append(())  # empty loop has W=1
     return inserted
 
 

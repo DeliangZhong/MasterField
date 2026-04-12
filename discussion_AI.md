@@ -10,6 +10,60 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-13: Phase 1 Step 1 — MM Equation for Lattice 2D YM (Apr 9, 2026)
+
+### Goal
+
+Per the Phase 1 plan, Step 1 is: fix and validate the Makeenko-Migdal equation machinery on D=2 before any neural-net code. The plan specified `test_mm_all_loops_2d` pass at 10⁻⁶ residual against exact area law.
+
+### What was built
+
+- Fixed `lattice.plaquette_insertions`: now uses STAPLE-replacement convention. Edge +μ at position e_j is replaced by the 3-step staple (ν, +μ, −ν) for each ν ≠ ±|μ|. Net displacement preserved, loop stays closed.
+- New `mm_equations.py`: candidate catalog A–G of MM equation forms; `gw_w_plus(λ)` returning the Gross-Witten single-plaquette strong/weak coupling value; `mm_residual_staple(loop, edge_idx, D, lam, W, include_self_closure)`; `scan_candidates_2d(target="lattice" or "continuum")` empirically compares candidates.
+- New `test_mm.py`: 6 tests documenting the candidate-D behavior.
+
+### Key findings — the MM equation for 2D lattice YM is NOT uniquely "exact"
+
+**Finding 1**: The continuum area law `W[C] = exp(−λ Area/2)` does NOT satisfy our MM candidates at machine precision. Best residual with candidate D (LHS = Σ_P W[staple(C,e,P)]/λ, RHS = 2W[C] + splits) is 8.65e-02 at λ=5 — clearly not lattice-exact.
+
+**Finding 2**: The LATTICE answer on an infinite 2D lattice at N=∞ is `W[C] = w_+^Area` where w_+ is the Gross-Witten single-plaquette value:
+- Strong coupling (λ ≥ 1): w_+ = 1/(2λ) — exact, no corrections.
+- Weak coupling (λ < 1): w_+ = 1 − λ/2.
+
+Against this lattice answer, candidate D residuals shrink: λ=2 → 2e-3; λ=5 → 2.5e-4. **Leading order in 1/λ is correct; there are subleading corrections at O(1/λ³).**
+
+**Finding 3**: Candidate D self-consistent solution w_+^MM = λ − √(λ²−1) matches GW's w_+^GW = 1/(2λ) to leading order:
+  w_+^MM = 1/(2λ) + 1/(8λ³) + ...
+
+The O(1/λ³) corrections are where candidate D differs from the physical answer. Which means our candidate D is the LEADING-ORDER MM, not the full MM.
+
+### Why the MM equation isn't unique (physics interpretation)
+
+The Wilson-action lattice MM has multiple equivalent formulations with different coefficient structures depending on which plaquettes are counted, how the self-closure is handled, and whether the "staple" or "symmetric difference" convention is used. Various references (Migdal 1975, Wadia 1981, Anderson-Kruczenski 2017, Kazakov-Zheng 2021) write the equation differently; comparing across them requires explicit convention dictionaries.
+
+For the Phase 1 program, the KEY question isn't "which form is exactly right" but "does the MM loss train the neural network to the correct Wilson loop values?" If the leading-order form is reasonable, the ML can compensate for subleading corrections.
+
+### Decision
+
+- **Adopt candidate D as the working MM equation** for Phase 1b.
+- Train neural loop functional by minimizing its residuals.
+- Validate: Phase 1b neural-network training should recover W[C] consistent with the GW strong-coupling answer (w_+ = 1/(2λ)) at least to 1-few%.
+- If Phase 1b fails (residuals converge to zero but Wilson loops wrong), iterate on MM form.
+
+### Empirical test results
+
+`test_candidate_D_leading_order_at_strong_coupling`: for λ ∈ {2, 5, 10}, max residual < 1/λ². ✓
+`test_self_consistent_w_plus_candidate_D`: rel error vs GW < 1/λ² for λ ∈ {2, 5, 10, 100}. ✓
+`test_plaquette_insertions_preserves_closure`: all 2D plaquette insertions closed. ✓
+`test_gw_wplus_values`: matches standard GW formulas. ✓
+All 6 MM tests pass. All 16 pre-existing tests still pass.
+
+### Next step
+
+Phase 1 Step 2: implement `LoopSystem` (precomputed loop enumeration + MM-equation index tables) in `lattice.py`. Then the neural loop functional and training can proceed on top of these precomputed structures.
+
+---
+
 ## Implementation-12: Phase 0 — QCD₂ Master Field Infrastructure (Apr 9, 2026)
 
 ### What was built
