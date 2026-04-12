@@ -433,3 +433,54 @@ def test_mm_loss_supervised_anchor_vanishes_at_target():
     params = [c0, c0]
     _, _, _, L_sup = loss_fn(params, 5.0)
     assert float(L_sup) < 1e-20
+
+
+# -------------------------------------------------------------------------
+# Task 7: Optimizer
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.optimize import OptResult, optimize_cuntz  # noqa: E402
+
+
+@pytest.mark.integration
+def test_optimize_cuntz_reduces_unitarity_loss():
+    """Run a tiny optimization on pure L_unit and verify loss decreases."""
+    f = CuntzFockJAX(n_labels=2, L_trunc=2)
+    from cuntz_bootstrap.unitarity import unitarity_loss_from_params
+
+    def loss_fn(params, lam):
+        return unitarity_loss_from_params(params, f)
+
+    params0 = init_master_operator_params(n_matrices=1, fock=f, seed=3, scale=0.3)
+    init_loss = float(loss_fn(params0, 1.0))
+
+    res = optimize_cuntz(
+        loss_fn=loss_fn, params0=params0, lam=1.0,
+        n_steps=200, lr=1e-2, warmup=10, log_every=50, verbose=False,
+    )
+    assert isinstance(res, OptResult)
+    assert res.final_loss < init_loss, (
+        f"loss did not decrease: init={init_loss}, final={res.final_loss}"
+    )
+    for p in res.params:
+        assert bool(jnp.all(jnp.isfinite(p)))
+
+
+@pytest.mark.integration
+def test_optimize_cuntz_mm_loss_reduces():
+    """Run on MM+unitarity loss with small L=2 and verify decrease."""
+    from cuntz_bootstrap.mm_loss import _load_loop_system
+
+    loop_sys = _load_loop_system(D=2, L_max=4)
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    loss_fn = make_cuntz_mm_loss_fn(
+        loop_sys=loop_sys, fock=f, D=2, w_unit=1.0, w_mm=1.0
+    )
+    params0 = init_master_operator_params(n_matrices=2, fock=f, seed=0, scale=0.02)
+    init_loss = float(loss_fn(params0, 5.0))
+
+    res = optimize_cuntz(
+        loss_fn=loss_fn, params0=params0, lam=5.0,
+        n_steps=100, lr=5e-3, warmup=10, log_every=50, verbose=False,
+    )
+    assert res.final_loss < init_loss
