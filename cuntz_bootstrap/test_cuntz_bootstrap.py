@@ -618,6 +618,91 @@ def test_lattice_symmetry_differentiable():
 
 
 # -------------------------------------------------------------------------
+# v2 Task 7: Reflection positivity
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.reflection_positivity import (  # noqa: E402
+    positive_half_open_paths,
+    reflect_path,
+    reflection_overlap_matrix,
+    reflection_positivity_loss,
+)
+
+
+@pytest.mark.unit
+def test_reflect_path_involution():
+    """theta(theta(p)) = p for any path p and any time_axis."""
+    for p in [(1, 2, -1, -2), (2, 1, 1), (), (-1, 2, 2, -1)]:
+        pp = reflect_path(reflect_path(p, time_axis=2), time_axis=2)
+        assert pp == p
+
+
+@pytest.mark.unit
+def test_reflect_path_example():
+    """theta(p) = reverse(p) with time-signs flipped."""
+    # time_axis = 2: reflect the plaquette (1, 2, -1, -2)
+    # reverse = (-2, -1, 2, 1); flip signs of axis-2 steps: (+2, -1, -2, 1)
+    out = reflect_path((1, 2, -1, -2), time_axis=2)
+    assert out == (2, -1, -2, 1)
+
+
+@pytest.mark.unit
+def test_positive_half_open_paths_basic():
+    """D=2 time_axis=2 length_cutoff=1: allowed steps are {+1, -1, +2}."""
+    paths = positive_half_open_paths(D=2, length_cutoff=1, time_axis=2)
+    # Empty path plus three length-1 paths
+    assert () in paths
+    assert (1,) in paths
+    assert (-1,) in paths
+    assert (2,) in paths
+    assert (-2,) not in paths
+    assert len(paths) == 4
+
+
+@pytest.mark.unit
+def test_reflection_overlap_identity_all_ones():
+    """Uhat = I → every v_p = |Omega>, every theta(v_p) = |Omega>, so R = 1s."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    paths = [(), (1,), (2,), (1, 2)]
+    R = reflection_overlap_matrix([I, I], paths, f, D=2, time_axis=2)
+    expected = jnp.ones((len(paths), len(paths)), dtype=jnp.complex128)
+    err = float(jnp.max(jnp.abs(R - expected)))
+    assert err < 1e-12
+
+
+@pytest.mark.unit
+def test_reflection_positivity_loss_identity_zero():
+    """Uhat = I → R is rank-1 PSD → loss = 0."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    paths = [(), (1,), (2,), (1, 2)]
+    loss = reflection_positivity_loss([I, I], paths, f, D=2, time_axis=2)
+    assert float(loss) < 1e-15
+
+
+@pytest.mark.integration
+def test_reflection_positivity_differentiable():
+    from cuntz_bootstrap.hermitian_operator import (
+        build_forward_link_ops as _build_v2,
+        init_hermitian_params as _init_v2,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    paths = positive_half_open_paths(D=2, length_cutoff=1, time_axis=2)
+
+    def scalar(ps):
+        U_list = _build_v2(ps, fock=f)
+        return reflection_positivity_loss(U_list, paths, f, D=2, time_axis=2)
+
+    params = _init_v2(n_matrices=2, fock=f, seed=13, scale=0.1)
+    val, grads = jax.value_and_grad(scalar)(params)
+    assert bool(jnp.isfinite(val))
+    for g in grads:
+        assert bool(jnp.all(jnp.isfinite(g)))
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
