@@ -10,6 +10,85 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-30: Path A via null-space discovery (Apr 13, 2026)
+
+### The idea
+
+Instead of deriving the exact MM equation from Kazakov-Zheng conventions
+(which stalled twice on δ̂/δ̆ sign ambiguity — see Impl-26), **discover
+it empirically** using `qcd2_wilson_loop` as the oracle.
+
+For each (loop C, edge e_j):
+
+1. Enumerate candidate terms: staple-replaced loops, splits, products,
+   identity.
+2. Evaluate each candidate at N independent λ values: `qcd2_wilson_loop(C, λ)`.
+3. Build evaluation matrix M (shape N × M_candidates).
+4. The null space of M **is** the set of exact relations: any vector v
+   with M · v = 0 gives a polynomial identity Σ v_j · term_j(λ) = 0 at
+   every λ.
+
+Linear algebra discovers the MM equation without any convention choice.
+
+### Why this works
+
+The MM equation is a polynomial identity in Wilson loop values that holds
+at all λ. Evaluated at N ≥ 5 distinct λ's, it constrains the polynomial
+coefficients to lie in a proper subspace. With the right candidate basis,
+the null space is non-trivial and contains the MM relation as one of its
+basis elements.
+
+We don't need to know what staples SHOULD appear, what sign conventions
+apply, or what the c_self coefficient is — we enumerate ALL plausible
+candidates and let SVD pick them out.
+
+### The plaquette edge 0 concrete setup
+
+For C = (1, 2, -1, -2), edge 0 = +1 at (0,0). In D=2 the candidate
+staples are (+2, +1, -2) and (-2, +1, +2). After substitution and
+backtrack reduction:
+
+- (+2) staple: full loop is (+2, +1, -2, +2, -1, -2) → reduces to empty loop (W = 1)
+- (-2) staple: full loop is (-2, +1, +2, +2, -1, -2) → a 1×2 rectangle (W = w_+²)
+
+Candidate pool:
+- W[plaq] = w_+
+- W[1×2] = w_+² (staple result)
+- W[empty] = 1 (staple result)
+- W[plaq]² = w_+² (self-intersection product)
+- (1/λ) × (staple sum) = (1/λ)(1 + w_+²)
+
+Evaluate at λ ∈ {0.5, 1, 2, 5, 10, 20, 100}. Build matrix M (7 × 5+ columns).
+SVD → null vectors give the exact relations.
+
+### Prediction
+
+We expect exactly ONE null vector for the plaquette edge 0 (one MM
+equation), containing a linear combination of the staples, W[C], and
+possibly W[C]². The EXACT coefficients will fall out of the SVD.
+
+If the null vector has only staple and W[C] terms (no W[C]²), the equation
+is purely linear. If W[C]² appears non-trivially, it's the nonlinear
+Makeenko-Migdal form (with N=∞ factorization).
+
+### Why this beats the analytic route
+
+- No Fig 3 reinterpretation.
+- No sign-convention errors that compile silently and break Step 3.
+- Self-validating: the discovered equation must evaluate to zero at any
+  λ not in the training set (e.g., λ=7). If it fails, we've found the
+  wrong subspace and need to enlarge the candidate pool.
+- Generalizes: the same procedure for 2×1, 2×2, fig-8, any canonical
+  D=2 loop up to L_max=8.
+
+### Status
+
+Adopting Path A'-by-null-space. Plan updated; implementation starting.
+Target: Implementation-32 memo after all L_max=8 equations are discovered
+and validated to 1e-12.
+
+---
+
 ## Discussion-29: Phase 4 v3 synthesis and decision fork (Apr 13, 2026)
 
 ### Where we are
