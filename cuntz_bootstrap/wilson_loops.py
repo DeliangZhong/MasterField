@@ -55,3 +55,42 @@ def wilson_loop(
 
 """Note: `build_forward_link_ops` lives in `hermitian_operator.py` for v2.
 Import it from there instead of this module."""
+
+
+# =====================================================================
+# Matrix-free variant: uses matfree_expm.expm_iH_v to avoid dense Uhat.
+# =====================================================================
+
+
+def wilson_loop_matfree(
+    params: list[jnp.ndarray],
+    loop: tuple[int, ...],
+    fock: CuntzFockJAX,
+    word_pairs,
+    D: int,
+    order: int = 25,
+) -> jnp.ndarray:
+    """W[C] via matrix-free e^{iH} v chain.
+
+    Equivalent to `wilson_loop(build_forward_link_ops(params), loop, fock, D)`
+    but never forms the full d x d Uhat matrices. Uses Taylor-series
+    expm-v with sparse H_matvec under the hood.
+
+    params: list of complex h vectors, one per positive direction mu=1..D.
+    word_pairs: WordPairs precomputed from fock (via
+                matfree_expm.build_word_pairs).
+    order: Taylor truncation; 25 is machine precision for ||H|| <= 1.
+    """
+    from .matfree_expm import expm_iH_v  # lazy import to avoid cycle risk
+
+    for mu in loop:
+        if mu == 0:
+            raise ValueError("Loop step cannot be mu=0")
+        if abs(mu) > D:
+            raise ValueError(f"|mu|={abs(mu)} exceeds D={D}")
+    v = fock.vacuum_state()
+    for mu in reversed(loop):
+        h = params[abs(mu) - 1]
+        sign = +1.0 if mu > 0 else -1.0
+        v = expm_iH_v(h, v, word_pairs, order=order, sign=sign)
+    return v[0]

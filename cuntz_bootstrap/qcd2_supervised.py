@@ -32,16 +32,17 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
-from .cyclicity import cyclicity_loss
+from .cyclicity import cyclicity_loss, cyclicity_loss_matfree
 from .diagnostics import boundary_norm, interior_unitarity
 from .fock import CuntzFockJAX
 from .hermitian_operator import (
     build_forward_link_ops,
     init_hermitian_params,
 )
+from .matfree_expm import WordPairs, build_word_pairs
 from .optimize import optimize_cuntz
 from .qcd2_exact import qcd2_wilson_loop
-from .wilson_loops import wilson_loop
+from .wilson_loops import wilson_loop, wilson_loop_matfree
 
 # Same sys.path idiom used by exact_mm.py to import from ../master_field
 _MASTER_FIELD_DIR = str(Path(__file__).resolve().parent.parent / "master_field")
@@ -89,12 +90,40 @@ def make_supervised_loss(
     fock: CuntzFockJAX,
     D: int,
     w_cyc: float = 10.0,
+    use_matfree: bool = False,
+    word_pairs: WordPairs | None = None,
+    order: int = 25,
 ) -> Callable[[list[jnp.ndarray], float], jnp.ndarray]:
     """L = sum_C |W_model[C] - W_exact[C]|^2 + w_cyc * L_cyc.
 
     Uses |.|^2 rather than (Re(.))^2 so the imaginary part is also driven
     to zero (a diagnostic that the ansatz respects planar reality).
+
+    When use_matfree=True, uses Taylor-series e^{iH}v via word_pairs;
+    otherwise falls back to the dense assemble_unitary path. The two
+    paths must agree (see test_matfree_expm.py); matfree is faster at
+    d >= 341.
     """
+    if use_matfree:
+        if word_pairs is None:
+            raise ValueError("use_matfree=True requires word_pairs")
+
+        def loss_fn(
+            params: list[jnp.ndarray], _lam: float
+        ) -> jnp.ndarray:
+            L_sup = jnp.zeros((), dtype=jnp.float64)
+            for loop, w_exact in targets:
+                w_model = wilson_loop_matfree(
+                    params, loop, fock, word_pairs, D, order=order
+                )
+                L_sup = L_sup + jnp.abs(w_model - w_exact) ** 2
+            L_cyc = cyclicity_loss_matfree(
+                params, cyc_words, fock, word_pairs, D, order=order
+            )
+            return L_sup + w_cyc * L_cyc
+
+        return loss_fn
+
     def loss_fn(params: list[jnp.ndarray], _lam: float) -> jnp.ndarray:
         U_list = build_forward_link_ops(params, fock)
         L_sup = jnp.zeros((), dtype=jnp.float64)
@@ -119,15 +148,17 @@ def run_step2(
     seed: int = 0,
     scale: float = 0.05,
     w_cyc: float = 10.0,
+    use_matfree: bool = False,
+    matfree_order: int = 25,
     output_dir: Path = Path("results/step2"),
 ) -> dict:
     """Single supervised run. n_labels = 2D per v3 convention.
 
-    Memory note: _build_word_operators caches fock.dim matrices of size
-    (fock.dim, fock.dim). For n=4:
-        L_trunc=3  dim=85    ~10 MB build
-        L_trunc=4  dim=341   ~630 MB build
-        L_trunc=5  dim=1365  ~40 GB build  (INFEASIBLE)
+    Dense path (use_matfree=False): forms Uhat = expm(i*H) densely. O(d^3)
+    per step; _build_word_operators caches O(d^3) memory.
+    Matfree path (use_matfree=True): Taylor-series e^{iH}v via sparse
+    creation-string matvec. O(order*nnz) per wilson_loop. ~30x faster
+    at d=341, ~270x at d=1365.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     n_labels = 2 * D
@@ -137,15 +168,23 @@ def run_step2(
         n_matrices=D, fock=fock, seed=seed, scale=scale,
     )
 
+    word_pairs = build_word_pairs(fock) if use_matfree else None
+
     targets = build_targets(lam)
     # Cyclicity on three structurally-distinct loops (no length-2 degenerates)
     cyc_words = [PLAQ, RECT_2x1, FIG8]
 
-    loss_fn = make_supervised_loss(targets, cyc_words, fock, D, w_cyc=w_cyc)
+    loss_fn = make_supervised_loss(
+        targets, cyc_words, fock, D, w_cyc=w_cyc,
+        use_matfree=use_matfree, word_pairs=word_pairs, order=matfree_order,
+    )
 
     print(f"\n>>> Step 2: D={D}, L_trunc={L_trunc}, dim={fock.dim}, "
-          f"lam={lam}, n_steps={n_steps}, lr={lr}, scale={scale} <<<")
+          f"lam={lam}, n_steps={n_steps}, lr={lr}, scale={scale}, "
+          f"matfree={use_matfree} <<<")
     print(f">>> Params: {D} x {fock.dim} complex = {2 * D * fock.dim} real <<<")
+    if use_matfree and word_pairs is not None:
+        print(f">>> Matfree nnz = {word_pairs.n_nnz}, order = {matfree_order}")
     for loop, w_exact in targets:
         print(f"  target W[{TARGET_NAMES[loop]}] = {w_exact:+.6e}")
 
@@ -517,6 +556,8 @@ def run_stretch_test(
     seed: int = 0,
     scale: float = 0.05,
     w_cyc: float = 10.0,
+    use_matfree: bool = False,
+    matfree_order: int = 25,
     output_dir: Path = Path("results/step2_5"),
 ) -> dict:
     """Supervised fit to ALL canonical D=2 loops up to L_max. Step 2.5."""
@@ -526,20 +567,29 @@ def run_stretch_test(
     params = init_hermitian_params(
         n_matrices=D, fock=fock, seed=seed, scale=scale,
     )
+    word_pairs = build_word_pairs(fock) if use_matfree else None
 
     targets = build_targets_stretch(lam, L_max=L_max)
     cyc_words = _pick_cyc_words(targets, n=3)
 
-    loss_fn = make_supervised_loss(targets, cyc_words, fock, D, w_cyc=w_cyc)
+    loss_fn = make_supervised_loss(
+        targets, cyc_words, fock, D, w_cyc=w_cyc,
+        use_matfree=use_matfree, word_pairs=word_pairs, order=matfree_order,
+    )
 
     print(
         f"\n>>> Step 2.5 stretch: D={D}, L_trunc={L_trunc}, dim={fock.dim}, "
         f"L_max={L_max}, n_targets={len(targets)}, lam={lam}, "
-        f"n_steps={n_steps}, lr={lr}, scale={scale}, w_cyc={w_cyc} <<<"
+        f"n_steps={n_steps}, lr={lr}, scale={scale}, w_cyc={w_cyc}, "
+        f"matfree={use_matfree} <<<"
     )
     print(
         f">>> Params: {D} x {fock.dim} complex = {2 * D * fock.dim} real <<<"
     )
+    if use_matfree and word_pairs is not None:
+        print(
+            f">>> Matfree nnz = {word_pairs.n_nnz}, order = {matfree_order}"
+        )
     # Print length distribution of targets
     length_count: dict[int, int] = {}
     for C, _ in targets:
@@ -584,6 +634,8 @@ def run_multi_coupling(
     seed: int = 0,
     scale: float = 0.05,
     w_cyc: float = 10.0,
+    use_matfree: bool = False,
+    matfree_order: int = 25,
     output_dir: Path = Path("results/step2_6"),
 ) -> dict:
     """Run independent supervised fits at each lam; verify all converge."""
@@ -602,6 +654,8 @@ def run_multi_coupling(
             seed=seed,
             scale=scale,
             w_cyc=w_cyc,
+            use_matfree=use_matfree,
+            matfree_order=matfree_order,
             output_dir=output_dir,
         )
         per_lam.append({

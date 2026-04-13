@@ -53,3 +53,31 @@ def cyclicity_loss(
             Wi = wilson_loop(U_list, Ci, fock, D)
             total = total + jnp.abs(Wi - W0) ** 2
     return total
+
+
+def cyclicity_loss_matfree(
+    params: list[jnp.ndarray],
+    test_loops: list[tuple[int, ...]],
+    fock: CuntzFockJAX,
+    word_pairs,
+    D: int,
+    order: int = 25,
+) -> jnp.ndarray:
+    """Matrix-free variant of cyclicity_loss.
+
+    Same loss structure but uses `wilson_loop_matfree` (Taylor-series
+    expm-v) instead of dense U@v. Signature takes the raw parameter list
+    (one h vector per direction) rather than a list of pre-assembled U's.
+    """
+    from .wilson_loops import wilson_loop_matfree  # lazy import
+
+    total = jnp.zeros((), dtype=jnp.float64)
+    for C in test_loops:
+        if len(C) < 2:
+            continue
+        W0 = wilson_loop_matfree(params, C, fock, word_pairs, D, order)
+        for i in range(1, len(C)):
+            Ci = _cyclic_rotation(C, i)
+            Wi = wilson_loop_matfree(params, Ci, fock, word_pairs, D, order)
+            total = total + jnp.abs(Wi - W0) ** 2
+    return total
