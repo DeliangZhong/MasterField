@@ -167,6 +167,54 @@ def expm_iH_v(
     return result
 
 
+def assemble_hermitian_matfree(
+    h: jnp.ndarray, fock: CuntzFockJAX, wp: WordPairs,
+) -> jnp.ndarray:
+    """Build H as dense matrix via h_matvec on each basis column.
+
+    Equivalent to `hermitian_operator.assemble_hermitian(h, fock)` but
+    avoids the O(d^3) memory cache in `_build_word_operators` (which
+    is infeasible at L_trunc >= 5). Uses `jax.vmap` to batch h_matvec
+    over the d columns of the identity matrix.
+
+    Cost: O(d * nnz) vs O(d^3) for the cached-product build.
+    """
+    d = fock.dim
+    eye_cols = jnp.eye(d, dtype=jnp.complex128)
+    # vmap over the column axis of eye. Each column ej is a basis vector
+    # and H ej is the j-th column of H.
+    H = jax.vmap(
+        lambda ej: h_matvec(h, ej, wp), in_axes=1, out_axes=1
+    )(eye_cols)
+    return H
+
+
+def assemble_unitary_matfree(
+    h: jnp.ndarray, fock: CuntzFockJAX, wp: WordPairs,
+) -> jnp.ndarray:
+    """Drop-in replacement for `hermitian_operator.assemble_unitary` that
+    avoids the word-operator cache.
+
+    H = assemble_hermitian_matfree(h, fock, wp);   Uhat = expm(i H)
+
+    At L_trunc=4 (d=341), the _build_word_operators cache needs ~630 MB
+    and O(d^3) setup. This route builds H in O(d*nnz) memory and time.
+    The expm itself is dense (O(d^3)) via `jax.scipy.linalg.expm` —
+    same as the existing dense path, so grad complexity is identical
+    to the dense `assemble_unitary`.
+    """
+    H = assemble_hermitian_matfree(h, fock, wp)
+    H = 0.5 * (H + H.conj().T)                       # symmetrise roundoff
+    return jax.scipy.linalg.expm(1j * H)
+
+
+def build_forward_link_ops_matfree(
+    params: list[jnp.ndarray], fock: CuntzFockJAX, wp: WordPairs,
+) -> list[jnp.ndarray]:
+    """Assemble D forward link operators Uhat_mu via the matfree H build."""
+    return [assemble_unitary_matfree(h, fock, wp) for h in params]
+
+
 def expm_iH_v_norm_check(
     h: jnp.ndarray,
     v: jnp.ndarray,

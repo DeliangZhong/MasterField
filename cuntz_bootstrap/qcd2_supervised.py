@@ -32,17 +32,21 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
-from .cyclicity import cyclicity_loss, cyclicity_loss_matfree
+from .cyclicity import cyclicity_loss
 from .diagnostics import boundary_norm, interior_unitarity
 from .fock import CuntzFockJAX
 from .hermitian_operator import (
     build_forward_link_ops,
     init_hermitian_params,
 )
-from .matfree_expm import WordPairs, build_word_pairs
+from .matfree_expm import (
+    WordPairs,
+    build_forward_link_ops_matfree,
+    build_word_pairs,
+)
 from .optimize import optimize_cuntz
 from .qcd2_exact import qcd2_wilson_loop
-from .wilson_loops import wilson_loop, wilson_loop_matfree
+from .wilson_loops import wilson_loop
 
 # Same sys.path idiom used by exact_mm.py to import from ../master_field
 _MASTER_FIELD_DIR = str(Path(__file__).resolve().parent.parent / "master_field")
@@ -104,28 +108,16 @@ def make_supervised_loss(
     paths must agree (see test_matfree_expm.py); matfree is faster at
     d >= 341.
     """
-    if use_matfree:
-        if word_pairs is None:
-            raise ValueError("use_matfree=True requires word_pairs")
-
-        def loss_fn(
-            params: list[jnp.ndarray], _lam: float
-        ) -> jnp.ndarray:
-            L_sup = jnp.zeros((), dtype=jnp.float64)
-            for loop, w_exact in targets:
-                w_model = wilson_loop_matfree(
-                    params, loop, fock, word_pairs, D, order=order
-                )
-                L_sup = L_sup + jnp.abs(w_model - w_exact) ** 2
-            L_cyc = cyclicity_loss_matfree(
-                params, cyc_words, fock, word_pairs, D, order=order
-            )
-            return L_sup + w_cyc * L_cyc
-
-        return loss_fn
+    if use_matfree and word_pairs is None:
+        raise ValueError("use_matfree=True requires word_pairs")
 
     def loss_fn(params: list[jnp.ndarray], _lam: float) -> jnp.ndarray:
-        U_list = build_forward_link_ops(params, fock)
+        if use_matfree:
+            U_list = build_forward_link_ops_matfree(
+                params, fock, word_pairs
+            )
+        else:
+            U_list = build_forward_link_ops(params, fock)
         L_sup = jnp.zeros((), dtype=jnp.float64)
         for loop, w_exact in targets:
             w_model = wilson_loop(U_list, loop, fock, D)
