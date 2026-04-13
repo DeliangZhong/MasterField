@@ -771,6 +771,115 @@ def test_total_loss_identity_only_mm_nonzero():
 
 
 # -------------------------------------------------------------------------
+# v3 Task 2: qcd2_exact.py — window decomposition
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.qcd2_exact import (  # noqa: E402
+    detect_self_intersection,
+    gw_w_plus as _gw_w_plus_q,
+    loop_to_vertices,
+    qcd2_wilson_loop,
+    signed_area as _signed_area_q,
+    window_decomposition,
+)
+
+
+@pytest.mark.unit
+def test_qcd2_gw_w_plus():
+    assert abs(_gw_w_plus_q(5.0) - 0.1) < 1e-15
+    assert abs(_gw_w_plus_q(1.0) - 0.5) < 1e-15
+    assert abs(_gw_w_plus_q(0.5) - 0.75) < 1e-15  # weak: 1 - λ/2
+
+
+@pytest.mark.unit
+def test_loop_to_vertices_plaquette():
+    vs = loop_to_vertices((1, 2, -1, -2))
+    assert vs == [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
+
+
+@pytest.mark.unit
+def test_signed_area_plaquette_ccw():
+    """Plaquette (1, 2, -1, -2) = unit CCW square → signed area +1."""
+    assert _signed_area_q((1, 2, -1, -2)) == 1
+
+
+@pytest.mark.unit
+def test_signed_area_plaquette_cw():
+    """Plaquette (2, 1, -2, -1) = unit CW square → signed area -1."""
+    assert _signed_area_q((2, 1, -2, -1)) == -1
+
+
+@pytest.mark.unit
+def test_detect_simple_plaquette_has_no_interior_intersection():
+    """A simple plaquette has no interior self-intersection."""
+    assert detect_self_intersection((1, 2, -1, -2)) is None
+
+
+@pytest.mark.unit
+def test_window_decomposition_simple_plaquette():
+    """Simple loops decompose to themselves."""
+    wins = window_decomposition((1, 2, -1, -2))
+    assert wins == [(1, 2, -1, -2)]
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_simple_plaquette():
+    """W[plaquette] = w_+^1 = w_+."""
+    for lam in [0.5, 1.0, 2.0, 5.0, 10.0]:
+        w = qcd2_wilson_loop((1, 2, -1, -2), lam)
+        assert abs(w - _gw_w_plus_q(lam)) < 1e-14
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_2x1_rectangle():
+    """W[2x1] = w_+^2."""
+    for lam in [1.0, 2.0, 5.0]:
+        w = qcd2_wilson_loop((1, 1, 2, -1, -1, -2), lam)
+        assert abs(w - _gw_w_plus_q(lam) ** 2) < 1e-14
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_backtrack_reduces():
+    """Loop with extra (1, -1) reduces to plaquette."""
+    for lam in [2.0, 5.0]:
+        w_plain = qcd2_wilson_loop((1, 2, -1, -2), lam)
+        w_bt = qcd2_wilson_loop((1, -1, 1, 2, -1, -2), lam)
+        assert abs(w_bt - w_plain) < 1e-14
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_figure_eight():
+    """CCW plaquette joined at (0,0) with CW plaquette:
+    (1, 2, -1, -2, -1, -2, 1, 2) — two unit squares → W = w_+²."""
+    for lam in [2.0, 5.0, 10.0]:
+        fig8 = (1, 2, -1, -2, -1, -2, 1, 2)
+        # Sanity: this loop closes at origin
+        vs = loop_to_vertices(fig8)
+        assert vs[-1] == (0, 0)
+        # Sanity: has interior self-intersection
+        assert detect_self_intersection(fig8) is not None
+        w = qcd2_wilson_loop(fig8, lam)
+        expected = _gw_w_plus_q(lam) ** 2
+        assert abs(w - expected) < 1e-14, f"lam={lam}: got {w}, exp {expected}"
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_empty():
+    assert qcd2_wilson_loop((), 5.0) == 1.0
+    # Pure backtrack: (1, -1) should also give 1
+    assert qcd2_wilson_loop((1, -1), 5.0) == 1.0
+
+
+@pytest.mark.unit
+def test_qcd2_wilson_loop_2x2():
+    """W[2x2] = w_+^4."""
+    loop = (1, 1, 2, 2, -1, -1, -2, -2)
+    for lam in [1.0, 2.0, 5.0]:
+        w = qcd2_wilson_loop(loop, lam)
+        assert abs(w - _gw_w_plus_q(lam) ** 4) < 1e-14
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
