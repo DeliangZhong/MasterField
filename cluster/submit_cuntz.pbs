@@ -1,0 +1,60 @@
+#!/bin/bash
+#PBS -N cuntz_bootstrap
+#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o cuntz_bootstrap.log
+
+# ── Configuration ──────────────────────────────────────────
+# Edit these for your run. See reference/cuntz_bootstrap.md for physics.
+PHASE="b"                # a, b, c, or d
+L_POLY="3"               # polynomial degree of H_mu (affects param count)
+L_TRUNC="3"              # Fock word truncation (>= L_poly; limits memory)
+L_MAX_LOOPS="4"          # LoopSystem max loop length (for MM equations)
+SCHEDULE="10.0,5.0,2.0"  # coupling continuation (strong → intermediate)
+N_STEPS="3000"           # Adam steps per λ-stage
+LR="1e-2"
+SEED="42"
+WEIGHTS="mm=1,cyc=1,rp=1,sym=1"   # loss-component weights
+
+# ── Environment setup ─────────────────────────────────────
+cd $PBS_O_WORKDIR
+
+module load jax/0.4.25-gfbf-2023a
+module load SciPy-bundle/2023.07-gfbf-2023a
+module load matplotlib/3.7.2-gfbf-2023a 2>/dev/null || true
+
+# Install optax into user site-packages if missing
+python3 -c "import optax" 2>/dev/null || pip install --user optax
+
+# JAX CPU configuration (comment out if using GPU)
+export JAX_PLATFORM_NAME=cpu
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
+
+# ── Run ───────────────────────────────────────────────────
+
+echo "============================================================"
+echo "  Cuntz-Fock bootstrap — phase=${PHASE}"
+echo "  L_poly=${L_POLY}, L_trunc=${L_TRUNC}, L_max_loops=${L_MAX_LOOPS}"
+echo "  schedule: ${SCHEDULE}"
+echo "  steps/stage: ${N_STEPS}, lr=${LR}, seed=${SEED}"
+echo "  weights: ${WEIGHTS}"
+echo "  Host: $(hostname), Start: $(date)"
+echo "============================================================"
+
+mkdir -p results
+
+python3 -m cuntz_bootstrap.train \
+    --phase ${PHASE} \
+    --l_poly ${L_POLY} \
+    --l_trunc ${L_TRUNC} \
+    --l_max_loops ${L_MAX_LOOPS} \
+    --schedule "${SCHEDULE}" \
+    --n_steps ${N_STEPS} \
+    --lr ${LR} \
+    --seed ${SEED} \
+    --weights "${WEIGHTS}"
+
+echo "============================================================"
+echo "  Finished: $(date)"
+echo "============================================================"
