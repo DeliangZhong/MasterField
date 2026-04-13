@@ -10,6 +10,125 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-31: L_max=10 stretch at L_trunc=4 FAILS — capacity ceiling between 34 and 186 targets (Apr 13, 2026)
+
+### Headline
+
+The 1364-parameter (L_trunc=4, dim=341) ansatz that fit 34 canonical loops
+to machine precision in Impl-29 **cannot** fit 186 canonical loops
+simultaneously. Adam at 5000 steps plateaus at final loss 1.65e−3, with
+156/186 targets failing the gate. Even plaquette — which fit to 1e−10
+at L_max=8 — degrades to 8.8% relative error when 186 loops are demanded.
+
+### Run config
+
+D=2, L_trunc=4, dim=341, n_labels=4, λ=5.0, L_max=10, 186 canonical loops
+(2 length-4, 4 length-6, 28 length-8, 152 length-10), cyclicity on 3
+cyc_words of lengths {6, 8, 10}, Adam + warmup-cosine, n_steps=5000,
+lr=5e-3. Hybrid matfree H build + dense expm. Wall time: 13,472 s (3.7 hr).
+
+### Loss trajectory
+
+| step | loss | |grad| |
+|---|---|---|
+| 0    | 1.25e+2 | 1.82e+2 |
+| 500  | 9.79e-2 | 8.02e-2 |
+| 1000 | 1.66e-2 | 4.16e-1 |
+| 1500 | 8.47e-3 | 7.98e-2 |
+| 2000 | 5.78e-3 | 4.02e-2 |
+| 2500 | 3.82e-3 | 4.93e-3 |
+| 3000 | 2.47e-3 | 3.80e-3 |
+| 3500 | 1.92e-3 | 2.45e-3 |
+| 4000 | 1.74e-3 | 1.88e-3 |
+| 4500 | 1.67e-3 | 1.69e-3 |
+| 4999 | 1.65e-3 | 1.64e-3 |
+
+Descent slowed from 10×/500-steps early on to ~5%/500-steps at the end.
+Gradient norm also plateaus at ~1.6e-3; the optimizer is stuck in a basin,
+not descending further.
+
+### Per-length error statistics
+
+| length | n_loops | mean_err_rel | max_err_rel |
+|---|---|---|---|
+| 4  | 2   | 6.81e-2 | 8.84e-2 |
+| 6  | 4   | 3.68e-1 | 5.75e-1 |
+| 8  | 28  | 1.60e+0 | 1.14e+1 |
+| 10 | 152 | 9.16e+1 | **3.70e+3** |
+
+Cyclicity residual 2.06e-6 (FAIL at 1e-6 gate). Interior unitarity
+4.12e-14 (PASS). Boundary single-step 0.49.
+
+### Comparison summary (all at L_trunc=4, dim=341, λ=5)
+
+| Target set | n | final_loss | n_fail | worst_err | verdict |
+|---|---|---|---|---|---|
+| L_max=6 (Impl-30) | 6   | 1.62e-21 | 0   | 2.2e-10 | PASS |
+| L_max=8 (Impl-29) | 34  | 4.13e-18 | 0   | 5.1e-6  | PASS |
+| L_max=10 (this)   | 186 | 1.65e-3  | 156 | 3.7e+3  | **FAIL** |
+
+**Capacity ceiling at L_trunc=4 lies somewhere between 34 and 186 targets.**
+The ansatz has 1364 real parameters, mathematically enough to satisfy 186
+scalar constraints; but Adam cannot find that solution in 5000 steps.
+
+### Interpretation
+
+Two hypotheses for the plateau are not distinguished by this run:
+
+- **H1 Ansatz-structural**: the specific polynomial form Ĥ = Σ h_w (â†)^w
+  + h.c. at L_poly=L_trunc=4 cannot exactly represent the full set of 186
+  Wilson loops. The 1364-parameter family is not the right 1364-dimensional
+  subspace of Hermitian operators at dim=341. Would need mixed `â†_u â_v`
+  terms (prior Task v3-9) or L_trunc=5.
+
+- **H2 Optimization-stuck**: a solution exists in the 1364-parameter
+  family, but Adam at lr=5e-3 cannot find it within 5000 steps due to the
+  conflicting-gradient landscape with 186 targets. L-BFGS or different
+  hyperparameters might succeed.
+
+Distinguishing requires either (a) running L-BFGS on the same target set,
+or (b) scaling to L_trunc=5 (dim=1365, 5464 params). Both are substantial
+additional experiments.
+
+### Further informative detail: plaquette degrades to 8.8% err
+
+Most striking: W[plaq] — which fit to 5.5e-9 relative error in Impl-27
+and 6.4e-9 in Impl-29 — now has 8.8% relative error. Adding more targets
+doesn't just leave plaquette alone; it actively perturbs the fit on
+shorter loops. This strongly suggests either (a) gradient coupling
+through cyclicity (the cyc words are length-10, 8, 6), or (b) genuine
+tension: the ansatz at 1364 params cannot satisfy all 186 + cyclicity
+conflicts simultaneously.
+
+Turning off cyclicity (or using a SHORTER cyc_word of length 4) should
+disambiguate. Not run in this pass.
+
+### Implications for Q1 and next steps
+
+- **Q1 confirmation level**: Impl-29 (L_max=8 = 34 targets PASS at machine
+  precision) and Impl-30 (4 couplings PASS) remain intact. Q1 = YES for
+  the target sets that correspond to the PHYSICALLY USEFUL domain
+  (short-to-moderate loops). This is what matters for Step 3 and beyond.
+- **L_max=10 limit**: documented as an open structural question. Not
+  blocking for Q2 — the exact MM equations use short-loop data anyway.
+- **Decision for roadmap**: do NOT invest in L_max=10+ beyond what's
+  needed. Focus on Q2 via exact MM (Path A/B). L_trunc=5 and/or mixed
+  ansatz terms are reserved for Phase C/D if needed.
+
+### Status
+
+```
+Q1 (stretch capacity):
+  - L_max=8  at L_trunc=4: PASS (Impl-29)
+  - L_max=10 at L_trunc=4: FAIL (this entry; plateau at L=1.65e-3)
+  - capacity ceiling ~50-100 targets with Adam at L_trunc=4
+Q1 (coupling robustness): PASS at L_trunc=4 (Impl-30)
+
+Next: exact MM port (Path A/B) for Q2. L_max=10 debugging deferred.
+```
+
+---
+
 ## Implementation-30: Step 2.6 multi-coupling — Q1 robust across λ (Apr 13, 2026)
 
 ### What was tested
