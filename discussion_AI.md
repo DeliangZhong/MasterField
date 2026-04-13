@@ -10,6 +10,186 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-29: Phase 4 v3 synthesis and decision fork (Apr 13, 2026)
+
+### Where we are
+
+Phase 4 v3 asked two clean questions:
+
+- **Q1 (representational)**: Can the Cuntz-Fock exp-Hermitian ansatz
+  represent the QCD₂ master field?
+- **Q2 (selectional)**: Do MM + cyclicity + RP + symmetry **select** the
+  master field without supervision?
+
+Answering Q1 was the prerequisite for Q2. Five implementations (Impl-27
+through Impl-31) explored Q1. This memo synthesizes the findings and
+lays out the decision for what to do next.
+
+### Q1 verdict, consolidated
+
+**Q1 = YES** for the physically useful loop regime, with documented
+structural caveats:
+
+| Target set | L_trunc | n | Verdict | Source |
+|---|---|---|---|---|
+| 6 hand-picked | 3 | 340 params | machine precision (later: overfit) | Impl-27 |
+| L_max=8 (34 canonical) | 3 | 340 | **FAIL** — overfit exposed | Impl-29 |
+| L_max=8 (34 canonical) | 4 | 1364 | **PASS** — worst 5e−6 | Impl-29 |
+| L_max=6 × (λ=2,3,5,10) | 4 | 1364 | **PASS** — all 4 machine precision | Impl-30 |
+| L_max=10 (186 canonical) | 4 | 1364 | **FAIL** — plateau at 1.65e−3 | Impl-31 |
+
+- The ansatz at **L_trunc=4** works robustly for loops up to length 8
+  and across λ ∈ [2, 10].
+- L_trunc=3 is insufficient (Impl-27's 6-target success was overfit
+  revealed by Impl-29).
+- L_trunc=4 hits an Adam-optimizer plateau between 34 and 186 targets.
+  Unresolved whether this is an ansatz-structural limit or an
+  optimization limit (H1 vs H2 in Impl-31).
+
+For Step 3 (unsupervised homotopy) and everything downstream, **L_max=8
+evidence is sufficient**: exact MM and cyclicity use short-loop data.
+Phase 3's W[2×2] 900× error is definitively cleared at L_trunc=4.
+
+### Infrastructure milestones
+
+- **Hybrid matfree H build** (`matfree_expm.assemble_hermitian_matfree`)
+  unlocks L_trunc=4 on a laptop by avoiding the 630 MB
+  `_build_word_operators` cache. Per-step cost at L_trunc=4 comparable
+  to dense at L_trunc=3 (~0.7 s/step for moderate target sets).
+- **Pure Taylor `expm_iH_v`** matfree code: correct unit tests (13
+  pass), but grad-compile pathological with 150+ nested `fori_loop`s.
+  Kept in repo as a future building block for L_trunc ≥ 5 where dense
+  expm becomes infeasible.
+- **Dense path** retained as validation fallback. Dense/matfree agreement
+  verified to 1e−10 for H-matvec, expm-v, and wilson_loop.
+
+### The bottleneck for Q2
+
+**Exact MM equations** are the unambiguous next obstacle. Candidate-D
+MM has residual = 1/(4λ³) at the plaquette — the HARD GATE failure
+documented in Impl-26. Any Step 3 unsupervised run using candidate-D
+converges to a configuration that satisfies candidate-D but has the
+WRONG Wilson loops (exactly Phase 1b's R4 finding).
+
+Path A (port Kazakov-Zheng eq 3 with Fig 3 conventions) and Path B
+(hardcode KZ eq S5 at Λ=4) were both deferred in Impl-26 on
+figure-interpretation ambiguity.
+
+### Possible next directions
+
+#### A. Exact MM port (Path A or B from Impl-26) — the principled route
+
+**Pros**
+- Directly addresses the Q2 blocker. Once exact MM residuals fit to
+  1e-10 against `qcd2_wilson_loop`, Step 3 homotopy becomes meaningful.
+- Builds on mature literature (Kazakov-Zheng 2203.11360, Qiao-Zheng
+  2601.04316). Papers already downloaded to `reference/`.
+- Bounded in scope: 1–2 sessions of diagrammatic work to fix conventions.
+- If it succeeds, Phase 4 has both Q1 AND Q2 answered — strong
+  publishable result (first explicit Cuntz-Fock master field
+  construction for lattice YM with unsupervised selection).
+
+**Cons**
+- Figure-by-figure interpretation is error-prone; candidate-D's
+  strong-coupling tail matches so closely that silent sign errors would
+  look "plausible." Needs ground-truth unit tests (residual → 0 to
+  1e-10 for plaquette and 2×1 at λ ∈ {0.5, 1, 2, 5, 10}).
+- If indirect MM equations (Qiao-Zheng elimination of auxiliary loops)
+  are also required, additional implementation work.
+
+**Concrete first task**: rewrite `exact_mm.mm_direct_residual` to encode
+the KZ convention, with hard-gate tests that residual < 1e-10 on
+`qcd2_wilson_loop` inputs.
+
+#### B. Debug L_max=10 plateau (L-BFGS / disable cyclicity / L_trunc=5)
+
+**Pros**
+- Disambiguates Impl-31's open question (ansatz-structural H1 vs
+  optimizer-stuck H2).
+- L-BFGS comparison is relatively cheap (~1-3 hr).
+- If L-BFGS breaks the plateau: better optimizer for all future runs.
+- If the plateau persists: proves structural limit, informs Phase C/D
+  design (mixed terms, higher L_trunc).
+
+**Cons**
+- Doesn't unblock Q2. L_max=10 isn't required physically — exact MM
+  uses short loops.
+- L-BFGS in JAX needs `jaxopt` (optional dep) or manual implementation.
+- Risk of "one more experiment" dynamics without resolution.
+
+**Concrete first task**: wrap `scipy.optimize.minimize` with
+method='L-BFGS-B' around the existing loss_fn; run on the same 186-target
+L_max=10 set.
+
+#### C. Phase C (D=3) with hybrid infrastructure
+
+**Pros**
+- Demonstrates the infrastructure generalizes beyond D=2.
+- D=3 polynomial space is larger (6 creators); hybrid matfree is even
+  more essential there.
+- Compare against Kazakov-Zheng bootstrap bounds (2203.11360) and
+  published lattice MC — would be first unsupervised D=3 master field
+  if successful.
+
+**Cons**
+- Bypasses Q2 at D=2. If D=3 works at L_max=8 supervised, we've
+  generalized Q1 — but still need exact MM for Q2 unsupervised selection.
+- D=3 ansatz: 6-label Cuntz space, d_L at L_trunc=3 is 259 (vs 85 at
+  D=2), at L_trunc=4 is 1555 (vs 341). Tight on memory without matfree.
+- Exact D=3 targets: no clean area law; need strong-coupling expansion
+  or KZ bootstrap bounds as surrogate targets.
+
+**Concrete first task**: run `run_step2` at D=3 with strong-coupling
+expansion targets at λ = 10 (cleanest regime).
+
+#### D. Document Phase 4 v3 and move to write-up / pause
+
+**Pros**
+- Impl-27..31 together constitute a publishable result on the Cuntz-Fock
+  master-field representation for QCD₂. Phase 3's 900× W[2×2] failure
+  is cleanly reversed.
+- Frees up time for other directions.
+
+**Cons**
+- Incomplete: Q2 still open. A write-up without Q2 is a "halfway house"
+  — demonstrates the ansatz works, does not yet demonstrate unsupervised
+  selection.
+- Loses momentum on the Cuntz-Fock program.
+- W[2×2] "1.2e−6 vs 900×" Impl-27 headline was partially overfit
+  (Impl-29 at 34 targets gives 5e−6 which is the clean number); would
+  need careful framing.
+
+### Recommended path: A
+
+Rationale:
+
+1. Directly addresses Q2 — the remaining open question of Phase 4.
+2. Resolves the bootstrap-literature connection (Kazakov-Zheng).
+3. Bounded in scope (1–2 sessions).
+4. If A succeeds: both Q1 and Q2 answered at D=2; strong Phase 4 conclusion.
+5. If A fails: failure is informative, motivates stepping back (B or D).
+
+B and C are useful but not blocking Q2. Defer until A is resolved.
+
+### What is explicitly NOT blocking
+
+- **L_max=10 capacity ceiling** (Impl-31): short-loop regime suffices
+  for Q2.
+- **Weak coupling** (λ < 1): Phase A Impl-27 did D=1 weak; not critical
+  for D=2.
+- **L_trunc=5 sparse ops**: only needed for D=3+ with large target sets.
+- **Mixed `â†_u â_v` terms**: only if exact-MM Q2 reveals ansatz limit.
+
+### Status one-liner
+
+```
+Q1 answered: YES at L_trunc=4 for L_max=8, robust across λ.
+Q2 blocker: exact MM (Path A/B from Impl-26).
+Recommended next: exact MM port (Path A).
+```
+
+---
+
 ## Implementation-31: L_max=10 stretch at L_trunc=4 FAILS — capacity ceiling between 34 and 186 targets (Apr 13, 2026)
 
 ### Headline
