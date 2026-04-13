@@ -10,6 +10,106 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-26: Phase 4 v3 — Steps 0-3 Refinement (Apr 13, 2026)
+
+### Why v3 replaces v2
+
+v2's Phase B smoke test (committed) reproduced the Phase 1b finding
+(Implementation-13 from Apr 12): the "candidate D" MM equations we inherited
+from `master_field/mm_equations.py` are only LEADING ORDER in 1/λ, not
+exact. At λ = 10 the optimizer satisfied candidate-D MM to 1e-5 but
+W[plaq] was 70% off and W[2×2] had the wrong sign. Any unsupervised result
+at this coupling is attributable to the WRONG EQUATIONS, not to the ansatz.
+
+All Phase 1b, Phase 3, and Phase 4 v2 failures so far have been partially
+uninterpretable for this reason: is the problem the ansatz, or the
+equations? v3 fixes the equations first (Step 0 HARD GATE) so that future
+failures are attributable.
+
+v3 also restructures Phase B as two separable experiments, each answering
+one clean question:
+
+- **Q1 (representational)**: Can the exp-Hermitian ansatz SIMULTANEOUSLY
+  fit all known QCD₂ Wilson loop values via supervised optimisation?
+- **Q2 (selectional)**: Do exact-MM + cyclicity + reflection-positivity
+  UNIQUELY determine the coefficients in an unsupervised homotopy from
+  the Q1 solution?
+
+Separating these lets us diagnose failures cleanly:
+- Q1 = No: ansatz inadequate → enlarge (mixed â†â terms, higher L_poly).
+- Q1 = Yes, Q2 = No: constraints insufficient → add indirect MM equations,
+  strengthen RP, or add physical principles.
+- Q1 = Yes, Q2 = Yes: Phase 4 works; D=3, D=4 are mechanical.
+
+### Status of v2 infrastructure (committed to main)
+
+Usable as-is: `fock.py`, `hermitian_operator.py`, `wilson_loops.py`,
+`cyclicity.py`, `lattice_symmetry.py`, `reflection_positivity.py`,
+`total_loss.py`, `optimize.py`, `gw_validation.py`, `phase_a_gw.py`
+(Phase A PASSED at 8e-8 moment error).
+
+Broken: `mm_loss.py` (candidate-D). Will be rewired through the new
+`exact_mm.py` engine.
+
+Deprecated: `phase_b_qcd2.py` unsupervised run. Restructured as Step 2
+supervised first, then Step 3 homotopy. Keep for reference.
+
+### v3 roadmap
+
+**Step 0 — Exact MM engine (HARD GATE)**
+`qcd2_exact.py` (exact Wilson loops with window decomposition) +
+`exact_mm.py` (direct MM derived from Haar measure, plus indirect
+equations via elimination) + `test_exact_mm.py`. Every direct-MM residual
+< 1e-10 against the exact QCD₂ Wilson loop for every loop up to length 8
+and every edge, at λ ∈ {0.5, 1, 2, 5, 10}. Nothing proceeds until this
+passes.
+
+**Step 1 — GW one-plaquette sanity** (`gw_test.py`)
+Re-confirm exp-Hermitian + expm + autodiff + truncation diagnostics on
+the simplest case before the D = 2 bootstrap.
+
+**Step 2 — Supervised Q1 test** (`qcd2_supervised.py`)
+THE decisive experiment. Supervised fit of Û₁, Û₂ to all target Wilson
+loops (plaquette through 2×2, figure-8, cyclicity, kernel entries) at
+λ = 2 and 5. Success criterion: each target within 1% simultaneously.
+
+**Step 3 — Unsupervised homotopy** (`qcd2_unsupervised.py`)
+Only if Step 2 passes. α-homotopy L(α) = (1-α)L_sup + w_MM L_MM_exact +
+w_cyc L_cyc + w_RP L_RP, with augmented Lagrangian for cyclicity and
+multi-start diagnostic at α = 1. Success: W[2×2] within 10% of w_+⁴,
+multi-start variance < 10%.
+
+### The physics bar
+
+Phase 3's W[2×2] failure was 900× at strong coupling. A Phase 4 pass at
+Q2 here (W[2×2] within 10% of w_+⁴) would be a three-orders-of-magnitude
+improvement and the key empirical evidence that the Cuntz-Fock bootstrap
+works. Phase C (D=3) and Phase D (D=4) then run on identical code.
+
+### Parameter counts (unchanged)
+
+| D | n=2D | L_poly | d_L | real DOFs / matrix | total real DOFs |
+|---|------|--------|-----|---------------------|-----------------|
+| 1 (GW) | 1 | 6 | 7 | 13 | 13 |
+| 2 (QCD₂) | 4 | 3 | 85 | 169 | 338 |
+| 3 | 6 | 2 | 43 | 85 | 255 |
+| 4 (QCD) | 8 | 2 | 73 | 145 | 580 |
+
+### The one risk (unchanged)
+
+If Q1 fails, enlarge ansatz (mixed terms, higher L_poly).
+If Q2 fails while Q1 passes, add indirect MM equations and twist-reflection
+positivity; else additional physical principle (clustering, free entropy).
+
+### Scope boundaries
+
+No Phase C (D=3) or Phase D (D=4) until Q1 and Q2 are both answered for
+D=2. No sparse-operator refactor until L_trunc > 3 is demonstrably needed.
+No free-entropy or clustering principles until MM-exact + cyc + RP is
+shown to fail.
+
+---
+
 ## Discussion-25: Phase 4 — Cuntz-Fock Coefficient Bootstrap (Apr 12-13, 2026)
 
 ### The idea
