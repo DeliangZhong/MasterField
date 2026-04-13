@@ -30,11 +30,15 @@ class OptResult:
 
 
 def _build_schedule(lr: float, n_steps: int, warmup: int) -> optax.Schedule:
+    # optax's `warmup_cosine_decay_schedule` expects decay_steps to be the
+    # TOTAL step count; it subtracts warmup internally. Guard against
+    # n_steps < warmup in small smoke tests.
+    warmup_clamped = max(1, min(warmup, max(1, n_steps - 1)))
     return optax.warmup_cosine_decay_schedule(
         init_value=lr * 0.01,
         peak_value=lr,
-        warmup_steps=max(1, warmup),
-        decay_steps=max(1, n_steps),
+        warmup_steps=warmup_clamped,
+        decay_steps=max(warmup_clamped + 1, n_steps),
         end_value=lr * 0.01,
     )
 
