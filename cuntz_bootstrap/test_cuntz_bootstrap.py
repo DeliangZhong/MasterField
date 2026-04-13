@@ -880,6 +880,55 @@ def test_qcd2_wilson_loop_2x2():
 
 
 # -------------------------------------------------------------------------
+# v3 Task 6: diagnostics
+# -------------------------------------------------------------------------
+
+from cuntz_bootstrap.diagnostics import (  # noqa: E402
+    boundary_norm,
+    interior_unitarity,
+)
+
+
+@pytest.mark.unit
+def test_boundary_norm_vacuum_zero():
+    """Vacuum state has 0 boundary weight."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    v = f.vacuum_state()
+    assert boundary_norm(v, f) < 1e-20
+
+
+@pytest.mark.unit
+def test_boundary_norm_at_boundary_word():
+    """Full weight on a length-L_trunc word gives boundary_norm = 1."""
+    f = CuntzFockJAX(n_labels=4, L_trunc=3)
+    idx = f.basis_to_idx[(0, 1, 2)]
+    v = jnp.zeros(f.dim, dtype=jnp.complex128).at[idx].set(1.0)
+    assert abs(boundary_norm(v, f) - 1.0) < 1e-15
+
+
+@pytest.mark.unit
+def test_interior_unitarity_identity_zero():
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    I = jnp.eye(f.dim, dtype=jnp.complex128)
+    assert interior_unitarity(I, f) < 1e-14
+
+
+@pytest.mark.integration
+def test_interior_unitarity_from_exp_hermitian_is_small():
+    """For Û = expm(iĤ) with random Ĥ, interior unitarity should be ~1e-10."""
+    from cuntz_bootstrap.hermitian_operator import (
+        assemble_unitary,
+        init_hermitian_params,
+    )
+
+    f = CuntzFockJAX(n_labels=4, L_trunc=2)
+    params = init_hermitian_params(n_matrices=1, fock=f, seed=5, scale=0.3)
+    U = assemble_unitary(params[0], f)
+    err = interior_unitarity(U, f)
+    assert err < 1e-9, f"Expected machine-precision unitarity, got {err}"
+
+
+# -------------------------------------------------------------------------
 # Task 7: Optimizer
 # -------------------------------------------------------------------------
 
