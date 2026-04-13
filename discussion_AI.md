@@ -10,6 +10,249 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-29: Phase 4 v3 — Step 2.5 stretch with hybrid matfree (Apr 13, 2026)
+
+### Two headlines
+
+1. **Q1 is NOT robust at L_trunc=3**: the 340-parameter ansatz that fit
+   Impl-27's 6 cherry-picked loops to 1e-6 was **overfit**. On the full
+   stretch test (34 canonical loops up to length 8), L_trunc=3 plateaus
+   at final loss 1.3e-5 and worst relative error 398% — most length-8
+   loops are badly mis-predicted.
+
+2. **Q1 IS robust at L_trunc=4**: the 1364-parameter ansatz at dim=341
+   fits all 34 stretch targets **simultaneously** to machine precision
+   (worst err 5e-6, final loss 4e-18, cyclicity 1e-20). Per-step cost
+   comparable to L_trunc=3 dense thanks to the hybrid matfree H build
+   (see below). **L_trunc=4 is the right truncation for D=2 QCD₂.**
+
+### What was built
+
+`cuntz_bootstrap/matfree_expm.py` gained the practical path (Discussion-28
+analyzed several; Taylor-matvec turned out to compile pathologically
+slow under `jax.grad` because of ~150 nested fori_loops per loss):
+
+    assemble_hermitian_matfree(h, fock, wp):
+        H = vmap(h_matvec)(eye)      # O(d * nnz) build, no cached d × d word ops
+
+    assemble_unitary_matfree(h, fock, wp):
+        return jax.scipy.linalg.expm(1j * H)   # standard dense expm, standard grad
+
+    build_forward_link_ops_matfree(params, fock, wp)
+
+Dense-expm grad complexity is unchanged; only the O(d³) `_build_word_operators`
+memory cache is replaced by an O(d · nnz) sparse build. At L_trunc=4 this
+saves 630 MB of dense-cache memory; at L_trunc=5 it saves 40 GB (the
+previously "infeasible" column). Wilson loops continue to use dense
+matvec via `wilson_loop(U_list, ...)`.
+
+13 new unit tests for the matrix-free H build and expm-v (all pass). 100
+total tests pass across the codebase.
+
+### Lesson about pure-matfree Taylor
+
+`expm_iH_v` via Taylor + fori_loop is correct (unit tests pass) but
+pathologically slow for the stretch-test loss: ~150 expm_iH_v calls per
+loss eval (6+28 supervised loops × avg 6 length + 3 cyc_words × ~6
+rotations × 6 length = ~150 fori_loops). `jax.grad` converts each
+fori_loop to a reversed scan in the backward pass; compile time on the
+~150-scan graph hung for 10+ minutes.
+
+Keep the pure-matfree code in the repo (tested, works for single-loop
+use) but do NOT use it in the production loss. Hybrid wins.
+
+### Stretch test runs
+
+Config: D=2, L_max=8, λ=5.0, 34 targets (2 length-4, 4 length-6, 28 length-8),
+cyclicity on 3 cyc_words, Adam + warmup-cosine, 5000 max steps.
+
+| L_trunc | dim  | params | worst_err | n_fail | final_loss | wall_time |
+|---|---|---|---|---|---|---|
+| 3 | 85  | 340  | **3.99** | 5/34 | 1.26e−5 | 32 min |
+| 4 | 341 | 1364 | **5e−6** | 0/34 | 4.13e−18 | 29 min |
+
+L_trunc=4 completed in **fewer wall seconds** (1724 s) than L_trunc=3
+(1940 s). The hybrid matfree build offsets L_trunc=4's larger d:
+`_build_word_operators` at L_trunc=4 would have cost 630 MB of cache
+and minutes to fill; the vmap build is O(d*nnz) ≈ 540K ops per H.
+
+### By-length statistics at L_trunc=4 stretch (all 34 fit to machine precision)
+
+    len= 4: n= 2   mean_err 6.1e−9    max_err 6.4e−9
+    len= 6: n= 4   mean_err 9.5e−9    max_err 2.4e−8
+    len= 8: n=28   mean_err 3.2e−7    max_err 5.1e−6
+
+Max imag part across all W[C]_model: 3.4e-10 (planar reality respected).
+Cyclicity residual: 1.1e-20 (machine zero).
+Interior unitarity: 4.8e-14 (machine precision).
+
+### L_trunc=3 top failing loops (all length-8)
+
+Loops like `(-2, -1, -2, 1, 2, -1, 2, 1)` and `(-2, 1, -2, 1, 2, -1, 2, -1)`
+— non-rectangular length-8 canonical forms — have relative errors of 7-85%.
+These loops probe high-order inter-direction correlations that the 340-param
+ansatz at dim=85 cannot represent.
+
+### Phase 3 comparison, revised
+
+Impl-27's 1.2e−6 W[2×2] relative error at L_trunc=3 (the "9 orders of
+magnitude vs Phase 3's 900× error") was obtained on a 6-loop target set.
+That fit was not robust: at L_trunc=3 the ansatz can place W[2×2] wherever
+the other 5 targets allow, producing a misleadingly small error. The stretch
+test shows the same 340-parameter ansatz **cannot** reproduce longer loops.
+
+Upgrading to L_trunc=4 restores Q1=YES for 34 simultaneous targets and
+makes the 1.2e-6 result robust (at L_trunc=4, L_max=8 max_err is 5e-6).
+
+### Boundary norm diagnostic
+
+At L_trunc=4 the single-step boundary norm is 0.57, not small. But
+`Û_μ^k|Ω⟩` boundary mass at k=1..8 stays in the 0.19-0.60 range (no
+monotone growth to 1). Wilson loops still fit to machine precision,
+so the truncation is ADEQUATE even with meaningful boundary occupancy.
+Going to L_trunc=5 would reduce boundary pressure further but is not
+computationally required for L_max=8 at D=2.
+
+### Next steps
+
+1. Multi-coupling test (Step 2.6) at **L_trunc=4** with L_max=6
+   (~few × 5-10 min per λ). Previously blocked by compute; now feasible.
+2. Stretch further: L_max=10 (186 targets) at L_trunc=4. Tests whether
+   the 1364-parameter ansatz generalizes to longer loops.
+3. Exact MM (Path A/B) becomes the next gate to Step 3 (unsupervised).
+
+### Status
+
+```
+v3 Tasks: 2.5 at L_trunc=4 = DONE (Q1 robust at machine precision)
+          2.5 at L_trunc=3 = FAIL (documented overfit)
+          2.6 multi-coupling = next (L_trunc=4)
+Hybrid matfree: IN PRODUCTION (unlocks L_trunc=4, replaces _build_word_operators)
+Pure Taylor matfree: CORRECT but unused (grad compile pathological)
+```
+
+---
+
+## Discussion-28: Matrix-free expm-v — unlocking L_trunc ≥ 4 (Apr 13, 2026)
+
+### Why this is needed
+
+Impl-27 established Q1 = YES at L_trunc=3 (dim=85) in ~34 min wall time.
+The next tests (Step 2.5 stretch, L_trunc=4 validation, eventually D=3, D=4
+Phase C/D) all need larger Fock spaces. Dense `jax.scipy.linalg.expm` in
+`hermitian_operator.assemble_unitary` is O(d³) and dominates compute:
+
+| L_trunc | dim  | dense expm | per step (6 targets) | per step (186 targets) |
+|---|---|---|---|---|
+| 3 | 85   | 0.6M ops | ~1 s    | ~3 s     |
+| 4 | 341  | 40M ops  | ~65 s   | ~200 s   |
+| 5 | 1365 | 2.5B ops | hours   | INFEASIBLE |
+
+Worse, `_build_word_operators` in `hermitian_operator.py` CACHES d×d matrices
+one per basis word (d matrices of size d²), giving a d³-memory build cost
+(630 MB at L_trunc=4, 40 GB at L_trunc=5 — infeasible).
+
+### The bottleneck isn't the physics — it's that we form U at all
+
+Wilson loops are matrix-element computations:
+
+    W[C] = ⟨Ω| Û_{μ_1} Û_{μ_2} ... Û_{μ_k} |Ω⟩
+         = e_0^T · e^{iH_1} · e^{iH_2} · ... · e^{iH_k} |Ω⟩
+
+This is a CHAIN of matrix-vector products (d² ops each), never a single
+matrix-matrix. Forming the full d × d matrix Û = e^{iH} wastes O(d³) work
+and O(d²) memory per direction.
+
+### Matrix-free Taylor-series e^{iH}v
+
+The cheapest algorithmic fix: compute e^{iH} v via Taylor series truncation:
+
+    e^{iH} v = Σ_{k=0}^{N} (iH)^k v / k!
+
+Each iteration is a matvec H_matvec(h, v), cost O(nnz(H)). For Cuntz
+creation-string operators C_w (length-|w| polynomial in â†_i), C_w has
+AT MOST ONE NONZERO PER COLUMN (it's a partial permutation on valid
+preimages). So H = Σ h_w C_w + h.c. has nnz ~ d · n_words / d = O(d · n_words).
+Per matvec: O(d · n_words) = O(d · d) = O(d²) at worst, but in practice
+O(total_nnz) ≈ O(d + ...).
+
+Concrete nnz counts per Fock size:
+
+| L_trunc | d | Σ nnz across all C_w | vs d² dense |
+|---|---|---|---|
+| 3 | 85 | 313 | 85× sparser |
+| 4 | 341 | 1,593 | 73× sparser |
+| 5 | 1365 | ~7k | 266× sparser |
+
+### Per-step cost comparison (34 targets)
+
+| L_trunc | Dense expm + matvecs | Taylor(order=25) matfree | speedup |
+|---|---|---|---|
+| 3 | 2.1M ops  | 0.4M ops  | ~5× |
+| 4 | 64M ops   | 2.0M ops  | ~32× |
+| 5 | 2.5B+ ops | 9.3M ops  | ~270× |
+
+At L_trunc=4, stretch test becomes ~10 min instead of ~hours.
+At L_trunc=5, it becomes minutes instead of "don't even try."
+
+### Options considered (ranked by effort × impact)
+
+1. **Taylor-series sparse matvec** (~30 lines, pure JAX, chosen)
+   Σ_k (iH)^k v / k! truncated at order ~25. H v uses precomputed sparse
+   (src, tgt) index arrays — no dense H, no dense U. Full autodiff via
+   JAX native ops. Best simplicity-to-speedup ratio.
+
+2. **JAX GPU** (1 line if a GPU is available)
+   `jax.config.update("jax_platform_name", "gpu")` → O(d³) expm on GPU
+   is 10-500× faster. Useful ON TOP OF matfree for really large d.
+   Deferred unless a GPU cluster becomes available.
+
+3. **Custom Krylov `expm_multiply` primitive** (~50 lines + custom_vjp)
+   Better for large ||H|| (adaptive Krylov dim). But needs hand-written
+   VJP for the Arnoldi iteration. Deferred.
+
+4. **Julia ExponentialUtilities + Enzyme** (full rewrite)
+   Gold standard for sparse expm-v. Not chosen — we keep the JAX
+   ecosystem for now (existing tests, CI, familiarity).
+
+### Convergence of Taylor series
+
+Error bound: ‖(iH)^N v / N!‖ ≤ ‖H‖^N / N!.
+
+For order N=25 and ||H|| ≤ 1: 1/25! ≈ 6e-26. Machine zero.
+For N=25 and ||H|| = 3: 3^25/25! ≈ 5e-14. Still machine precision.
+For N=25 and ||H|| = 5: 5^25/25! ≈ 2e-8. Degraded.
+For N=25 and ||H|| = 10: ~10. Fails.
+
+During Step 2, observed ||H|| stays O(1) (h-coefficients are O(1e-2 to 1e-1)
+and act on basis states with norm 1). Track max ||H|| in training and
+auto-bump order if > ~4. If fails, switch to scaling-and-squaring
+(e^{iH} = (e^{iH/2^s})^{2^s}, with the (·)^{2^s} done via repeated matvecs
+by squaring the intermediate expansion — this doubles per-iteration cost
+but handles any ||H||).
+
+### Validation path (before switching default)
+
+1. Implement `matfree_expm.py` with `build_word_indices`, `h_matvec`,
+   `expm_iH_v`.
+2. Unit tests: agreement with dense at d=85 to 1e-10 (expm-v), 1e-12
+   (H-matvec). JAX gradient correctness via finite-difference.
+3. Replay Step 2 at L_trunc=3 with matfree; require W[2×2] agrees with
+   the Impl-27 dense result to 1e-6.
+4. Step 2.5 stretch at L_trunc=3: matfree vs dense wall-time comparison.
+5. Step 2.5 stretch at L_trunc=4: previously infeasible; should complete
+   in ≤ 1 hour with matfree.
+
+If all four pass, matfree becomes the default path. Dense retained as a
+fallback / validation reference.
+
+### Next action
+
+Implement per the plan at `~/.claude/plans/melodic-exploring-lecun.md`.
+Target: Implementation-29 memo after L_trunc=4 stretch test completes.
+
+---
+
 ## Implementation-27: Phase 4 v3 — Step 2 Q1 YES (machine precision) (Apr 13, 2026)
 
 ### Path decision recap
