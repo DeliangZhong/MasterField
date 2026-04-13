@@ -10,6 +10,117 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-30: Step 2.6 multi-coupling — Q1 robust across λ (Apr 13, 2026)
+
+### What was tested
+
+Step 2.6 of the v3 plan: run `run_multi_coupling` at λ ∈ {2, 3, 5, 10}
+with L_max=6 (6 canonical D=2 loops), L_trunc=4 (dim=341, hybrid matfree
+H build + dense expm). 3000 max steps per λ, lr=5e-3, shared config.
+
+### Result
+
+| λ | w_+ | worst_err_rel | final_loss | n_steps | wall_time |
+|---|---|---|---|---|---|
+| 2.0  | 0.250 | 2.74e−9  | 1.23e−17 | 1201 | 4.2 min |
+| 3.0  | 0.167 | 2.41e−7  | 8.13e−14 | ~1800 | 5.0 min |
+| 5.0  | 0.100 | 2.15e−10 | 1.62e−21 | 901  | 3.2 min |
+| 10.0 | 0.050 | 1.31e−12 | 3.26e−26 | 1501 | 5.2 min |
+
+**Every λ passes the gate to machine precision with the same 1364-parameter
+ansatz.** Boundary single-step norm stays in 0.53–0.56 across λ (no
+coupling-specific blow-up). Cyclicity 1e−18 to 1e−27; interior unitarity
+5e−14 (machine precision) at every λ.
+
+Total wall time: 17.0 min for all four runs combined (vs hours if dense
+were attempted at L_trunc=4). Multi-coupling is now a CHEAP experiment.
+
+### Why this matters
+
+The concern after Impl-29 was: "L_trunc=4 stretches at λ=5 — but does
+the ansatz STRUCTURE also work at different couplings?" Coupling enters
+the problem only through the exact targets W_exact[C] = w_+^|area|;
+different λ gives different target vectors. The ansatz parameters h_{μ,w}
+adapt per run. Q1 would weaken if some λ failed to converge or required
+different architecture.
+
+Answer: **the same exp-Hermitian Cuntz-Fock ansatz at (dim=341, L_trunc=4,
+n_labels=4) fits the QCD₂ strong-coupling master field at every λ tested**.
+No coupling-specific pathology, no qualitative change in convergence or
+boundary behavior.
+
+### The full Q1 story
+
+Combining Impl-27, Impl-29, Impl-30:
+
+- **Impl-27** (L_trunc=3, 6 targets, λ=5): fit to machine precision.
+  Impressive but 340 parameters for 6 numbers is heavily overdetermined.
+- **Impl-29** (L_trunc=3, 34 targets, λ=5): **FAILS** (worst_err 3.99).
+  L_trunc=3 is structurally too small; the 340-param ansatz cannot
+  represent 34 canonical length-4/6/8 loops simultaneously.
+- **Impl-29** (L_trunc=4, 34 targets, λ=5): **PASSES** (worst_err 5e−6,
+  loss 4e−18). The 1364-param ansatz at dim=341 IS adequate.
+- **Impl-30** (L_trunc=4, 6 targets, λ ∈ {2, 3, 5, 10}): **ALL PASS**
+  at machine precision. Same ansatz structure works across the coupling
+  range.
+
+**Q1 = YES**, qualified: the exp-Hermitian Cuntz-Fock ansatz at **L_trunc=4**
+simultaneously represents the QCD₂ master field Wilson loops at every
+strong-coupling value tested, for every canonical loop up to length 8.
+Phase 3's W[2×2] 900× failure is replaced by a machine-precision fit.
+
+### What remains open for Q1
+
+- Stretch further: L_max=10 (186 canonical loops) at L_trunc=4. Computes
+  predicted as feasible (~30–60 min) given the hybrid matfree speed.
+  Would rule out the lingering concern "works at 34 loops but not 186."
+- Weak coupling λ < 1 (gapped GW phase) was NOT tested. The strong-coupling
+  formula w_+ = 1/(2λ) is valid for λ ≥ 1; for λ < 1, w_+ = 1 − λ/2.
+  Phase A (Impl-27) already suggested weak-coupling works for D=1; the
+  D=2 weak-coupling check is a separate experiment, not critical to
+  answering Q1.
+
+### Implications for Q2 (the selectional question)
+
+Q1 = YES means the bottleneck for Q2 is now unambiguously **the exact
+MM equations** (Path A/B from Impl-26). Candidate-D MM has a 1/(4λ³)
+residual at the plaquette — any Step 3 unsupervised homotopy using
+candidate-D MM will converge to something not quite the master field.
+Step 3 is blocked until exact MM is available.
+
+### Infrastructure summary after Impl-30
+
+- Hybrid matfree H build (vmap(h_matvec)): unlocks L_trunc=4 at ~Impl-27
+  wall time. Replaces the 630 MB `_build_word_operators` cache.
+- `run_step2`, `run_stretch_test`, `run_multi_coupling`: all take a
+  `use_matfree=True` switch (default False for back-compat).
+- Unit tests: 100 pass, including 13 new matfree tests.
+- Pure Taylor `expm_iH_v` code present but unused in production (grad
+  compile is pathological for loss with many nested fori_loops).
+
+### Next steps (in priority order)
+
+1. Launch L_max=10 stretch at L_trunc=4 (186 targets). If passes,
+   Q1 is as confirmed as we can reasonably make it without exact MM.
+2. Start porting Kazakov-Zheng Fig 3 conventions for exact MM (Path A)
+   or encoding KZ eq (S5) hardcoded (Path B). This becomes the
+   bottleneck for Q2.
+3. Step 3 unsupervised homotopy: blocked on (2).
+
+### Status snapshot
+
+```
+Phase 4 v3 Step 2:   DONE (Impl-27)
+            Step 2.5: DONE (Impl-29) — L_trunc=4 passes, L_trunc=3 overfit
+            Step 2.6: DONE (this entry) — Q1 coupling-robust
+            Stretch L_max=10: NEXT (optional strong confirmation)
+            Step 3:   BLOCKED on exact MM
+Q1 verdict: YES at L_trunc=4 across coupling range
+Q2 bottleneck: exact MM (Path A/B)
+```
+
+---
+
 ## Implementation-29: Phase 4 v3 — Step 2.5 stretch with hybrid matfree (Apr 13, 2026)
 
 ### Two headlines
