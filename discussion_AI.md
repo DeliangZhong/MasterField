@@ -10,6 +10,106 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-26: v3 Tasks 1-3 + HARD GATE investigation (Apr 13, 2026)
+
+### What was built (committed on main)
+
+- **v3 Task 1**: Discussion-26 memo prepended to this file (supersedes v2
+  Discussion-25 narrative).
+- **v3 Task 2** (`cuntz_bootstrap/qcd2_exact.py`, 12 tests): exact QCD₂ Wilson
+  loops via Gopakumar-Gross window decomposition. Figure-8 with two unit
+  plaquettes → W = w_+² verified to 1e-14.
+- **v3 Task 3** (`cuntz_bootstrap/exact_mm.py`, 6 tests): candidate-D
+  direct MM equations (c_self = 2, sum of staple-replaced loops divided by
+  λ) with helpers `staple_replacement`, `split_pairs_at_vertex`,
+  `mm_direct_residual`, `enumerate_loops`.
+
+### HARD GATE outcome
+
+Residual of candidate-D at the plaquette, all edges, vs exact
+`qcd2_wilson_loop(C, λ)`:
+
+    λ = 1   → residual 2.5e-1
+    λ = 2   → residual 3.1e-2
+    λ = 5   → residual 2.0e-3
+    λ = 10  → residual 2.5e-4
+
+Empirically exact formula: `residual = 1/(4λ³)`. This confirms Phase 1b's
+Implementation-13 diagnosis: candidate-D MM is only LEADING ORDER in 1/λ.
+The 1e-10 HARD GATE is NOT met at any finite λ. Candidate-D is usable as
+an approximation at strong coupling (< 1% at λ ≥ 5) but cannot validate
+itself exactly against the GW area law.
+
+### Literature review (papers downloaded to `reference/`)
+
+1. `reference/qiao_zheng_2601.04316.pdf` — "Direct and Indirect Loop
+   Equations in Lattice Yang-Mills" (Liu & Yang, Jan 2026). Algorithmic
+   framework for SU(2) loop-equation enumeration via plaquette-cut and
+   subloop-cut strategies. Important insight: direct equations alone do
+   NOT form a complete set — "indirect equations" emerge only when
+   eliminating auxiliary higher-length loops from the direct system.
+
+2. `reference/kazakov_zheng_2203.11360.pdf` — "Bootstrap for Lattice
+   Yang-Mills theory" (Kazakov & Zheng, 2022). **The canonical SU(∞) paper.**
+   Explicit loop equation in their eq (3):
+
+       Σ_{ν⊥μ} (W[C; δ̂C^ν_{l_μ}] − W[C; δ̆C^ν_{l_μ}]) = λ Σ_{l'=l} ε_{ll'} W[C_{ll'}] W[C_{l'l}]
+
+   Supplementary eq (S5) gives the explicit Λ=4 2D loop equations in
+   terms of 6 specific Wilson loops W_1..W_6 (W_1 = plaquette).
+
+3. `reference/makeenko_notes_2508.09705.pdf` — "Notes on the Loop Equation
+   in Loop Space" (Makeenko, original ~1994, arXiv 2025). The CONTINUUM
+   form of the loop equation (eq 2.13) as a functional Laplace equation:
+
+       ∂_μ^x (δ/δσ_{μν}) W(C) = λ ∫_C dx'_μ δ^(d)(x-x') W(C_{xx'}) W(C_{x'x})
+
+   The lattice discretization maps area-derivative → "loop with plaquette
+   added minus loop without" and path-derivative → "backtrack-variation".
+
+### Why porting KZ eq (3) stalled
+
+The δ̂ vs δ̆ notation in KZ eq (3) is ambiguous from text alone. Each of
+three natural interpretations I attempted (above/below staple, CCW/CW
+orientation of same plaquette, add/remove plaquette) leaves a non-zero
+LHS `1 − w_+²` at the plaquette where RHS is zero (no self-intersection
+splits). The correct orientation+sign convention is encoded in Fig 3 of
+KZ which I cannot interpret precisely enough in-session to avoid silent
+sign errors that would invalidate all downstream work.
+
+Three paths forward are documented in the plan file:
+
+- **Path A**: careful figure-by-figure port of KZ Fig 3. Risk: sign
+  errors masked by the SPEED of candidate-D matching at large λ. 1-2
+  sessions of diagrammatic work.
+- **Path B**: hardcode KZ Supplementary eq (S5) at Λ=4 as a ground-truth
+  test suite. Requires identifying W_2..W_6 from the figures (same
+  figure-interpretation bottleneck).
+- **Path C**: proceed to Step 2 with candidate-D MM residuals documented
+  as O(1/λ³) biased. Step 2 is a SUPERVISED fit answering the
+  REPRESENTATIONAL question (Q1) — does not depend on exact MM. If Q1
+  passes, exact MM becomes the only remaining obstacle to Q2; if Q1
+  fails, the ansatz is the bottleneck and exact MM doesn't help.
+
+### Recommendation
+
+**Path C** has the highest information-per-time. Supervised Step 2 with
+the exp-Hermitian ansatz directly answers Phase 3's 900× W[2×2] failure
+mode: if the ansatz can represent W[2×2] = w_+⁴ under supervised training,
+we've cleared the FIRST blocker; if it cannot, no amount of exact-MM work
+will rescue the bootstrap. Defer Path A (exact MM port) to after Step 2.
+
+### Status snapshot
+
+```
+Tasks complete: v3 Task 1 (memo) + v3 Task 2 (qcd2_exact) + v3 Task 3 (candidate-D mm_loss)
+Papers downloaded: qiao_zheng, kazakov_zheng, makeenko in reference/
+HARD GATE: failed at 1e-10 (candidate-D is O(1/λ³) biased)
+Awaiting: user decision on Path A/B/C
+```
+
+---
+
 ## Discussion-26: Phase 4 v3 — Steps 0-3 Refinement (Apr 13, 2026)
 
 ### Why v3 replaces v2
