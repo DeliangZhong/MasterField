@@ -145,20 +145,25 @@ def expm_iH_v(
 
     e^{A} v = sum_{k=0}^{order} A^k v / k!
 
-    We accumulate term_k = A^k v / k! iteratively: term_k = (A / k) * term_{k-1}.
+    Iteratively: term_0 = v, term_k = (A / k) * term_{k-1}, result = sum_k term_k.
 
     For sign=+1: returns e^{iH} v (used for forward direction +mu).
     For sign=-1: returns e^{-iH} v = (e^{iH})^dag v (used for -mu).
 
-    Python `for` loop over `order` unrolls under jax.jit (fixed iteration
-    count). JIT compile cost scales with order; order=25 is fine.
+    Uses `jax.lax.fori_loop` to keep the JIT-traced graph small (one
+    iteration body) regardless of `order`. Python-unrolled version
+    builds a massive graph that compiles very slowly for the full
+    loss (many expm calls per step) — fori_loop avoids that.
     """
     i_sign = 1j * sign
-    term = v
-    result = v
-    for k in range(1, order + 1):
-        term = (i_sign / k) * h_matvec(h, term, wp)
-        result = result + term
+
+    def body(k_minus_1, state):
+        term, result = state
+        k = k_minus_1 + 1  # fori_loop iterates k_minus_1 = 0..order-1
+        new_term = (i_sign / k) * h_matvec(h, term, wp)
+        return (new_term, result + new_term)
+
+    _, result = jax.lax.fori_loop(0, order, body, (v, v))
     return result
 
 
@@ -175,6 +180,7 @@ def expm_iH_v_norm_check(
     i_sign = 1j * sign
     term = v
     result = v
+    # Python-for version retained for diagnostics (runs outside JIT).
     for k in range(1, order + 1):
         term = (i_sign / k) * h_matvec(h, term, wp)
         result = result + term
