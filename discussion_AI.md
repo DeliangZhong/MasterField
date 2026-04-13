@@ -10,6 +10,135 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-32: Path A null-space scan — plaquette MM is the GW formula (Apr 13, 2026)
+
+### What was found
+
+`cuntz_bootstrap/find_exact_mm.py` scans linear combinations of candidate
+terms (raw + λ-weighted Wilson loops + products) against `qcd2_wilson_loop`
+at multiple λ values. Singular-value null vectors give exact polynomial
+identities.
+
+**Plaquette edge 0, D=2** (committed, verified):
+
+    (1/λ) · [W[empty] + W[1×2]] = 2 · W[plaq] + (1/λ) · W[plaq]²
+
+Residual at every tested λ ∈ {1, 2, 3, 5, 7, 10, 50, 100, π} is 1e-17 to
+1e-18 (machine precision). Fails at λ = 0.5 (weak coupling, gapped phase)
+as expected.
+
+**Direct test** (not via null-space; hand-derived from candidate-D + a
+splitting term `W[C]²/λ`):
+
+```
+lam=1:  residual 0.000e+00
+lam=2:  residual 0.000e+00
+lam=5:  residual 1.301e-18
+lam=10: residual 1.626e-19
+lam=7:  residual 3.144e-18   (fresh)
+lam=3.14159: residual 3.469e-18   (fresh)
+lam=50: residual 1.469e-18
+```
+
+### What the equation actually says
+
+Using N=∞ factorization (W[1×2 rectangle] = W[plaq]² by area law):
+
+    (1/λ)(1 + W[plaq]²) = 2 W[plaq] + (1/λ) W[plaq]²
+    1/λ + W[plaq]²/λ   = 2 W[plaq] + W[plaq]²/λ
+    1/λ               = 2 W[plaq]
+
+**So the plaquette MM equation IS the Gross-Witten strong-coupling
+formula w_+ = 1/(2λ).** No new information — just a rephrasing of the
+known result.
+
+### Why candidate-D had the 1/(4λ³) residual
+
+Candidate-D omits the splitting term `(1/λ) W[plaq]²`. At strong coupling:
+
+    candidate-D residual = (1/λ)(1 + W[plaq]²) - 2 W[plaq]
+                         = [exact] + (1/λ) W[plaq]²
+                         = 0 + W[plaq]²/λ
+                         = 1/(4λ³)    (since W[plaq]=1/(2λ))
+
+This matches the empirically observed 1/(4λ³) residual exactly. The
+missing piece was the trivial start=end-vertex self-intersection
+splitting, which contributes `W[C]²/λ` (not `W[C]·W[empty] = W[C]` as I
+previously thought).
+
+### Longer loops: null space is degenerate
+
+At 2×1 rectangle edge 0, the null space is 12-dimensional. This is
+because many candidates are LINEARLY DEPENDENT at strong coupling —
+e.g., at λ=5:
+
+    W[staple_nu=+2]    = W[plaq]     = 1/10
+    W[loop·plaq]       = W[rect] · W[plaq]  = 1/1000
+    W[staple_nu=-2]    (area 4 long loop) = w_+^4 = 1e-4
+    W[plaq]² = W[1×2] = W[staple_nu=-2]/w_+²
+    ...
+
+Powers of w_+ collapse; the SVD can't distinguish them. The 12 null
+vectors mix arbitrary combinations of these collapsed relations, none
+cleanly isolating the MM equation.
+
+### Implication for Q2 strategy
+
+Since the plaquette MM equation in strong-coupling D=2 is EQUIVALENT
+to the Gross-Witten formula w_+ = 1/(2λ), and all larger Wilson loops
+are determined by w_+ via the area law, **the "exact MM system" for
+D=2 strong coupling is just**:
+
+1. (1/λ) = 2 W[plaq]                        (plaquette MM ↔ GW formula)
+2. W[C] = W[plaq]^|area(C)| for simple C   (area law)
+3. W[C] = Π W[C_i] for window-decomposed C  (factorization)
+
+These three rules fully determine the master field. Any Wilson loop
+bootstrap that uses them WILL recover the correct answer.
+
+**However** — this means "Q2 at D=2 strong coupling" is nearly trivial:
+the ansatz at L_trunc=4 already fits the area law (Impl-29, 30); adding
+plaquette MM + factorization as unsupervised constraints just REINFORCES
+the area law it already satisfies.
+
+The GENUINELY novel Q2 test is at:
+- D=3, D=4 (no closed-form area law; MM is non-trivial)
+- D=2 WEAK coupling (gapped phase; MM coefficient changes)
+
+### Strategic pivot
+
+Given that "exact MM at D=2 strong coupling = GW formula", Path A's
+original goal ("exact MM unlocks Q2 at D=2") is tautological. The REAL
+Q2 question lives at higher D or weak coupling. Two options:
+
+**A'. Use the discovered equations as a D=2 Q2 sanity check**.
+Implement `exact_mm_residual` using the plaquette equation + factorization.
+Run Step 3 (unsupervised homotopy) at D=2 strong coupling. Success is
+expected and confirms the pipeline. Then move to D=3.
+
+**B'. Go directly to D=3 (Phase C)**.
+At D=3 there's no closed-form master field; MM equations ARE
+non-trivial and cannot be reduced to a scalar formula. Would use the
+D=3 target set (from strong-coupling expansion or Kazakov-Zheng bounds)
+and the same null-space scanner to discover D=3 MM equations, now
+genuinely independent of the targets.
+
+Recommend **A' → B'**: validate the Q2 pipeline at D=2 with the known
+exact equations, then move to D=3 where the question becomes substantive.
+
+### Status
+
+```
+Path A plaquette MM: DONE (equation derived, machine-precision validated)
+Path A longer loops: deferred (null space too degenerate at strong coupling)
+Exact MM in D=2 strong: equivalent to GW formula (not new information)
+Phase 4 v3 Step 3 (Q2 at D=2): feasible but expected to be trivially true
+Phase C (D=3): genuinely novel test; uses same null-space discovery
+Recommended: A' validation, then pivot to Phase C.
+```
+
+---
+
 ## Discussion-30: Path A via null-space discovery (Apr 13, 2026)
 
 ### The idea
