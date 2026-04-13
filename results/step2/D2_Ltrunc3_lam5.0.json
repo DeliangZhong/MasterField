@@ -1,0 +1,63 @@
+{
+  "D": 2,
+  "L_trunc": 3,
+  "lam": 5.0,
+  "scale_init": 0.05,
+  "dim": 85,
+  "per_target": {
+    "plaq": {
+      "model_real": 0.09999999945401095,
+      "model_imag": -4.867949576423114e-11,
+      "exact": 0.1,
+      "err_rel": 5.459890595194139e-09
+    },
+    "2x1": {
+      "model_real": 0.010000000637973157,
+      "model_imag": -3.2820449049481004e-10,
+      "exact": 0.010000000000000002,
+      "err_rel": 6.379731552069722e-08
+    },
+    "1x2": {
+      "model_real": 0.010000000367745107,
+      "model_imag": 1.3495470615586952e-10,
+      "exact": 0.010000000000000002,
+      "err_rel": 3.677451052008784e-08
+    },
+    "2x2": {
+      "model_real": 9.999988235341286e-05,
+      "model_imag": -2.2673229938506567e-11,
+      "exact": 0.00010000000000000002,
+      "err_rel": 1.176465871607652e-06
+    },
+    "3x1": {
+      "model_real": 0.0010000000243595257,
+      "model_imag": 2.6420748618430356e-11,
+      "exact": 0.0010000000000000002,
+      "err_rel": 2.4359525464465175e-08
+    },
+    "fig8": {
+      "model_real": 0.010000000007910717,
+      "model_imag": -1.0277522430107364e-09,
+      "exact": 0.010000000000000002,
+      "err_rel": 7.910715485448526e-10
+    }
+  },
+  "cyclicity_residual": 4.101163850550259e-21,
+  "boundary_norm": 0.4388716909933651,
+  "interior_unitarity": 5.15989589155925e-15,
+  "final_loss": 2.0816460440846994e-18,
+  "n_steps_run": 3001,
+  "final_grad_norm": 5.173358508056057e-10,
+  "gates": {
+    "plaq_err": true,
+    "2x1_err": true,
+    "1x2_err": true,
+    "2x2_err": true,
+    "3x1_err": true,
+    "fig8_err": true,
+    "cyclicity": true,
+    "boundary": false,
+    "unitarity": true
+  },
+  "Q1_verdict": "NO"
+}
