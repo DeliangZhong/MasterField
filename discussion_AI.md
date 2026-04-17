@@ -10,6 +10,57 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Discussion-31: A' → B' plan (Apr 13, 2026)
+
+After Impl-32 showed the D=2 plaquette MM is the Gross-Witten formula
+in disguise, the strategic path forward is:
+
+### A' — D=2 Q2 pipeline validation
+
+Use the discovered plaquette MM equation to run an END-TO-END Q2
+validation at D=2 strong coupling. Unsupervised training from random
+init, with loss = `plaq_MM + cyc + RP + sym`. Expected to pass (the
+constraints are sufficient by construction, since plaquette MM +
+factorization give the full area law). This VALIDATES THE PIPELINE
+before we invest in harder cases.
+
+File: `cuntz_bootstrap/qcd2_q2.py` (implements `plaquette_mm_residual`,
+`make_q2_loss`, `run_q2_validation`; uses matfree H-build + dense expm
+from Impl-29).
+
+### B' — Phase C (D=3) substantive Q2 test
+
+Pivot to D=3, the smallest dimension where the master field has no
+closed-form area law. At D=3, the null-space scanner
+(`find_exact_mm.py`) will find genuinely new MM equations, not
+tautologies. Run Q2 unsupervised at D=3 and compare against
+strong-coupling expansion or Kazakov-Zheng bootstrap bounds.
+
+Files to create:
+- `cuntz_bootstrap/qcd3_targets.py` — strong-coupling expansion targets
+  for D=3 Wilson loops (for Q1 validation only; NOT used as Q2 target)
+- `cuntz_bootstrap/phase_c_d3.py` — Q1 stretch + Q2 unsupervised at D=3
+
+### Expected timeline
+
+- A' smoke + full run: ~1 hr wall
+- A' analysis and Impl-33: ~30 min
+- B' infra + D=3 target set: 2-3 hr
+- B' Q1 stretch at D=3: ~30 min
+- B' null-space at D=3: ~1 hr
+- B' Q2 at D=3 + Impl-34: ~2 hr
+
+Total: one focused session + 2-3 hrs of background compute.
+
+### Scope
+
+- No D=4 (Phase D) until D=3 passes.
+- No weak-coupling D=2 (gapped phase) experiments.
+- `qcd2_wilson_loop` is NOT a Q2 target; ground-truth appears only in
+  analysis / report.
+
+---
+
 ## Implementation-32: Path A null-space scan — plaquette MM is the GW formula (Apr 13, 2026)
 
 ### What was found
