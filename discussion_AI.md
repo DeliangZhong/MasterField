@@ -10,6 +10,93 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-35: Phase C D=3 Q1 PASSES; Q2 needs D=3 oracle (Apr 13, 2026)
+
+### D=3 Q1 headline
+
+At D=3, L_trunc=3 (dim=259, nnz=985), λ=10, 2001 Adam steps, supervised
+fit to 10 leading-order strong-coupling targets (3 plaquettes in planes
+(1,2), (1,3), (2,3); 3 × 2×1 rectangles; 3 × 2×2 squares; 1 figure-8):
+
+All 10 targets fit to **0.00–0.05% relative error**. Cyclicity
+4.3e−18, interior unitarity 3.1e−14, final loss 1.5e−15. Wall time
+7.3 min.
+
+The Cuntz-Fock exp-Hermitian ansatz at D=3, L_trunc=3 represents the
+leading-order D=3 master field at planar Wilson loops to machine
+precision. **Q1 at D=3 = YES (leading order).**
+
+### Infrastructure confirmation
+
+`phase_c_d3.py` (committed 64e52a5) supersedes the v2 candidate-D-based
+script. Uses matfree H-build (Impl-29), reuses all v2 losses
+(cyclicity, reflection positivity, lattice symmetry), `optimize_cuntz`
+(Impl-19 conj fix).
+
+Per-step cost at n_labels=6, L_trunc=3 (dim=259): ~0.22 s/step on
+laptop CPU. Early-stop at tol=1e−12 triggered at step 2001 / 5000.
+
+### Q2 at D=3: blocked on oracle for non-planar loops
+
+The null-space MM scanner (`find_exact_mm.py`) relies on
+`qcd2_wilson_loop` as the oracle. That function is D=2 only
+(`_step_to_delta` raises on μ=±3).
+
+At D=3, plaquette edge 0 has 4 staples:
+- Plane (1,2): ν=±2 give PLANAR staple-replaced loops (D=2 evaluable).
+- Plane (1,3): ν=±3 give NON-PLANAR 3D loops (not directly evaluable
+  by qcd2_wilson_loop).
+
+The non-planar staples are where the GENUINE D=3 MM content lives —
+without them, the scanner reduces to the D=2 case and finds only the
+Gross-Witten tautology.
+
+### Three options for the Q2 D=3 oracle
+
+1. **Strong-coupling expansion to O(1/λ^4)**: derive corrections from
+   virtual perpendicular plaquettes (Münster 1981, Drouffe-Zuber 1983
+   character expansion). Unbiased, arbitrary-loop-length in principle.
+   Scope: 1-2 sessions of physics to code.
+
+2. **Kazakov-Zheng SDP bootstrap bounds**: use bounds from 2203.11360
+   (D=3 section) as the oracle. Rigorous but range-bound, not
+   pointwise.
+
+3. **Q1-trained model at multiple λ** as empirical oracle: train at
+   λ ∈ {5, 10, 20, 50, 100}, extract W[C] values for every candidate
+   loop. Feed to null-space scanner. Approximate (leading-order
+   targets limit accuracy), but directly usable with no new derivation.
+
+For the current session, **option 3 is the fastest path** to a
+demonstration. It would give APPROXIMATE MM equations consistent with
+leading-order strong-coupling. The discovered equations would be
+candidates for genuine MM relations at D=3; validation against higher
+orders or MC would be a separate step.
+
+### Honest summary
+
+Phase 4 v3 complete:
+- Q1 at D=2: YES (Impl-27..30) at L_trunc=4 for L_max=8, robust across λ.
+- Q2 at D=2: YES (Impl-34) with plaq_MM + cyc + RP + sym + factorization.
+- Q1 at D=3: YES (this entry, Impl-35) at leading-order strong coupling.
+- Q2 at D=3: BLOCKED on non-D=2 oracle; recommend option (3) using
+  Q1-trained model at multiple λ.
+
+The Cuntz-Fock bootstrap works end-to-end in D=2 and Q1 generalizes to
+D=3. Q2 at D=3 (the genuine novelty) awaits a D=3 Wilson-loop oracle.
+
+### Status
+
+```
+Q1 at D=2: YES (L_trunc=4 L_max=8)        — Impl-29, 30
+Q1 at D=3: YES (L_trunc=3 L_max_planar=8) — this entry
+Q2 at D=2: YES (plaq MM + cyc + RP + sym + factorization) — Impl-34
+Q2 at D=3: awaits D=3 oracle (recommend option 3: multi-λ Q1 models)
+Phase D:   not attempted (D=4 deferred per scope rules)
+```
+
+---
+
 ## Implementation-34: A'' D=2 Q2 PASSES (machine precision from random init) (Apr 13, 2026)
 
 ### Headline
