@@ -10,6 +10,131 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Implementation-33: A' D=2 Q2 — constraints satisfied, Wilson loops wrong (Apr 13, 2026)
+
+### Headline
+
+At D=2, L_trunc=4, λ=5, 5000 Adam steps from random init, with loss =
+`plaq_MM + 10·L_cyc + L_RP + L_sym`, the optimizer reached:
+
+| quantity | final value | physical target | verdict |
+|---|---|---|---|
+| final_loss | 1.24e−10 | — | — |
+| plaq MM residual | 1.75e−7 | 0 | essentially satisfied |
+| cyclicity residual | 4.54e−14 | 0 | machine precision |
+| interior unitarity | 2.37e−14 | 0 | machine precision |
+| boundary norm (Û_μ|Ω⟩) | 2.86e−1 | < 1 | OK |
+| W[plaq] | 0.1188 | 0.1000 | 18.8% error |
+| W[2×1] | 0.2022 | 0.0100 | 20× off |
+| W[1×2] | 0.2022 | 0.0100 | 20× off (=2×1 ✓) |
+| W[2×2] | −0.1252 | 0.0001 | wrong sign & 1000× off |
+| W[3×1] | 0.2134 | 0.0010 | 200× off |
+| W[fig-8] | 0.2539 | 0.0100 | 25× off |
+
+**All imposed constraints are essentially satisfied. Wilson loops are
+far from the physical master field.**
+
+Wall time: 3204 s (~53 min) for 5000 steps at L_trunc=4.
+
+### Diagnosis
+
+Substituting the found values into the plaquette MM equation:
+
+    (1/λ)(W[empty] + W[1×2]) − 2 W[plaq] − (1/λ) W[plaq]²
+    = 0.2(1 + 0.2022) − 2(0.1188) − 0.2(0.1188²)
+    = 0.2404 − 0.2376 − 0.002823 = ~0                 ✓
+
+The equation holds at these (non-physical) Wilson-loop values. The
+ansatz found **a one-parameter family of solutions** to the plaquette
+MM equation, parameterised by (W[plaq], W[1×2]) satisfying
+`2 W[plaq] + W[plaq]²/λ − W[1×2]/λ = 1/λ`.
+
+Only when we additionally enforce **N=∞ factorization**
+`W[1×2] = W[plaq]²` does the equation reduce to
+`1/λ = 2 W[plaq]`, giving the physical `W[plaq] = 1/(2λ) = 0.1`.
+
+The Cuntz-Fock ansatz at finite L_trunc does NOT automatically enforce
+factorization: ⟨Ω|Û_P·Û_P|Ω⟩ ≠ ⟨Ω|Û_P|Ω⟩² in general. Factorization
+is a CONSTRAINT on the master-field state, not an automatic property
+of Hilbert-space positivity.
+
+### This is Phase 1b R7, restated
+
+Phase 1b (Impl-14) showed MM + unitarity alone do not uniquely
+determine Wilson loops in D=2. The Kazakov-Zheng bootstrap addresses
+this with **Toeplitz PSD positivity** on Wilson-loop moment matrices,
+which implies factorization at N=∞.
+
+In the Cuntz-Fock formulation, factorization appears as:
+- For a self-intersecting loop `C = C_1 ∪ C_2` at vertex v:
+  W[C] = W[C_1] · W[C_2]
+- More broadly: the L operator algebra is a free product, and at N=∞
+  Wilson loops are multiplicative across disconnected cycles.
+
+Our A' loss is MISSING this term.
+
+### What passes through the pipeline correctly
+
+Despite the wrong Wilson loops, the A' run validates the pipeline:
+
+1. `qcd2_q2.py::run_q2_validation` runs end-to-end on matfree + Adam
+   + the four-way composite loss.
+2. Unitarity and cyclicity are satisfied to machine precision (the v2
+   infrastructure works as designed).
+3. `plaquette_mm_residual` evaluates to machine precision — the exact
+   MM equation from Impl-32 is correctly implemented.
+4. The optimizer does converge; it just converges to the wrong basin.
+
+### The fix: add factorization loss
+
+Minimal change to `qcd2_q2.py`:
+
+```python
+def factorization_loss(U_list, fock, D):
+    """Sum of |W[C] - W[C_1]*W[C_2]|^2 over self-intersecting loops."""
+    # Canonical D=2 factorization pairs:
+    plaq = (1, 2, -1, -2)
+    fig8 = (1, 2, -1, -2, -1, 2, 1, -2)  # two plaquettes at origin
+    rect_2x1 = (1, 1, 2, -1, -1, -2)     # area-2 simple loop
+    # Key identity: W[fig8] = W[plaq]^2 (window decomposition at origin)
+    W_plaq = jnp.real(wilson_loop(U_list, plaq, fock, D))
+    W_fig8 = jnp.real(wilson_loop(U_list, fig8, fock, D))
+    # Area law for simple loops:
+    W_rect = jnp.real(wilson_loop(U_list, rect_2x1, fock, D))
+    # fig-8 factorization
+    l1 = (W_fig8 - W_plaq**2) ** 2
+    # 2x1 is a simple loop of area 2; factorization at shared edge
+    # with a plaquette IS the area law:
+    l2 = (W_rect - W_plaq**2) ** 2
+    return l1 + l2
+```
+
+Add `w_fact * factorization_loss` to A' loss. Expected: this will pin
+W[plaq] = 1/(2λ), giving W[rect] = w_+², W[2×2] = w_+⁴, etc.
+
+### Alternative: Kazakov-Zheng Toeplitz PSD constraint
+
+Instead of enumerating specific factorization identities, impose the
+general PSD condition on the Toeplitz moment matrix of Wilson loops.
+This is more principled but more implementation work.
+
+### Updated recommendation
+
+A'' (A' with factorization): add `factorization_loss` to the A' loss,
+re-run at D=2, L_trunc=4, λ=5. Expected to converge to the physical
+master field. Then document A'' result and pivot to B' (Phase C).
+
+### Status
+
+```
+A' result: pipeline validated, but MM + cyc + RP + sym UNDER-determines
+           (same as Phase 1b R7).
+A'' fix:   add factorization loss.
+B' ready:  D=3 infrastructure reuses A'' loss + discovered MM equations.
+```
+
+---
+
 ## Discussion-31: A' → B' plan (Apr 13, 2026)
 
 After Impl-32 showed the D=2 plaquette MM is the Gross-Witten formula
