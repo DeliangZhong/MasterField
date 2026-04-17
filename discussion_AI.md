@@ -10,6 +10,105 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Project overview — Phase 4 Cuntz-Fock master-field bootstrap
+
+### One-paragraph summary
+
+This repo constructs the large-N master field for lattice Yang-Mills in
+D=2 and D=3 directly as numerically-optimised Cuntz-Fock operators
+Û_μ = expm(iĤ_μ). We have validated the representational power of the
+ansatz (Q1) at machine precision at D=2 and D=3 (leading-order), and the
+selectional power of unsupervised constraints (Q2) at machine precision
+at D=2. The remaining open question is Q2 at D=3, which is blocked on
+a D=3 Wilson-loop oracle for the null-space MM scanner.
+
+### Phase-by-phase outcomes
+
+| Phase | Description | Outcome | Entries |
+|---|---|---|---|
+| 0 | One-matrix models (Gaussian, quartic) | ✓ machine precision | Impl-1..9 |
+| 1a | D=2 supervised W[C] fit (neural loop functional) | ✓ ~1% | Impl-14 |
+| 1b | D=2 MM-only unsupervised | ✗ MM alone underdetermined (R7) | Impl-14 |
+| 2 | Gross-Witten unitary reduction | reformulated | Disc-10 |
+| 3 | TEK direct matrix optimization (D=2 SU(N) at N=9, 49) | partial: small loops within a few %, W[2×2] off 900× | Impl-16..23 |
+| 4 v2 | Cuntz-Fock exp-Hermitian ansatz at D=1 (GW) | ✓ 8e-8 moment error | Impl-21 v2 |
+| 4 v3 Step 0 | Exact MM HARD GATE at plaquette | ✗ candidate-D off by 1/(4λ³) | Impl-26 |
+| 4 v3 Step 2 | Q1 at D=2 L_trunc=4 L_max=8 | ✓ machine precision, robust across λ | Impl-27..30 |
+| 4 v3 Step 2 stretch | Q1 at D=2 L_max=10 | ✗ 186 targets exceeds ansatz capacity | Impl-31 |
+| 4 v3 Path A | Null-space MM discovery at D=2 plaquette | ✓ found equation ≡ Gross-Witten formula | Impl-32 |
+| 4 v3 Step 3 A' | D=2 Q2 unsupervised (MM+cyc+RP+sym) | ✗ constraints OK, W wrong (Phase 1b R7 again) | Impl-33 |
+| 4 v3 Step 3 A'' | D=2 Q2 unsupervised + factorization | ✓ **machine precision from random init** | Impl-34 |
+| 4 v3 Phase C | D=3 Q1 leading-order strong-coupling | ✓ machine precision at 10 planar loops | Impl-35 |
+| 4 v3 Phase C | D=3 Q2 unsupervised | ⚠ blocked on D=3 oracle | Impl-35 |
+
+### Key infrastructure
+
+- `cuntz_bootstrap/fock.py` — JAX Cuntz-Fock space (Impl-25 v2 Task 2).
+- `cuntz_bootstrap/hermitian_operator.py` — exp-Hermitian ansatz with
+  Padé expm (no eigh NaN). Dense `assemble_unitary` build caches
+  `_build_word_operators` (infeasible at L_trunc ≥ 5).
+- `cuntz_bootstrap/matfree_expm.py` — hybrid matfree H-build
+  (`assemble_hermitian_matfree` via vmap+scatter-add). Unlocks L_trunc=4
+  and D=3 at comparable per-step cost to L_trunc=3 dense. Also contains
+  pure Taylor `expm_iH_v` (correct unit tests, unused in production
+  due to grad-compile pathology).
+- `cuntz_bootstrap/wilson_loops.py` — `wilson_loop(U_list, loop, fock, D)`
+  for ±μ convention; `wilson_loop_matfree` for pure-Taylor path.
+- `cuntz_bootstrap/cyclicity.py`, `lattice_symmetry.py`,
+  `reflection_positivity.py` — the four physical-state losses.
+- `cuntz_bootstrap/optimize.py` — Adam + warmup-cosine with the Impl-19
+  conj gradient fix for JAX complex autodiff.
+- `cuntz_bootstrap/qcd2_exact.py` — `qcd2_wilson_loop(loop, lam)` with
+  Gopakumar-Gross window decomposition (D=2 only).
+- `cuntz_bootstrap/find_exact_mm.py` — null-space MM scanner
+  (`scan_mm_equation`, `validate_equation`). D=2 only due to oracle.
+- `cuntz_bootstrap/qcd2_supervised.py` — Q1 runs at D=2.
+- `cuntz_bootstrap/qcd2_q2.py` — Q2 unsupervised at D=2 (plaq MM + cyc
+  + RP + sym + factorization).
+- `cuntz_bootstrap/phase_c_d3.py` — Q1 supervised at D=3.
+
+Test suite: 100+ pytest tests across unit, integration, and regression.
+All pass.
+
+### Current open blocker and three unblock paths
+
+**Blocker:** `find_exact_mm.py` depends on `qcd2_wilson_loop`
+(D=2-only). At D=3 the plaquette edge 0 in the (1,2) plane has four
+staples, two of which (ν=±3) produce non-planar 3D loops that the
+oracle cannot evaluate. This prevents the null-space scanner from
+discovering D=3 MM equations, which blocks Q2 at D=3.
+
+**Path 1 — Münster 1981 strong-coupling character expansion to O(1/λ^4).**
+Write a `d3_strong_coupling.py` that evaluates W[C] for any D=3 loop at
+leading plus subleading order. Unbiased and arbitrary loop length.
+Scope: 1-2 sessions of physics coding.
+
+**Path 2 — Kazakov-Zheng 2203.11360 SDP bootstrap bounds.**
+Use the published D=3 bootstrap bounds as an interval-valued oracle.
+Rigorous but not point-valued; discovery of exact MM requires additional
+work to extract coefficients from midpoints.
+
+**Path 3 — Multi-λ Q1-trained models as empirical oracle.** Fastest
+demo path. Train `run_q1_d3` at a few λ values, extract W[C] at every
+candidate loop, feed to the null-space scanner. The discovered
+equations are leading-order accurate (limited by the training targets).
+Gives a PROOF OF PIPELINE at D=3 within one session.
+
+### Reading guide
+
+For readers new to the project:
+
+1. **Big picture**: this overview + Discussion-25 (Phase 4 plan) +
+   Discussion-29 (Phase 4 v3 synthesis).
+2. **Current results**: Status pinpoint (below) + Impl-34 + Impl-35.
+3. **Infrastructure**: Discussion-28 (matfree rationale), Impl-29
+   (matfree deployment), Impl-27 (Q1 at D=2).
+4. **Historical context**: Impl-1..23 cover Phases 0–3 (one-matrix
+   through TEK finite-N); Phase 4 is the Cuntz-Fock Hilbert-space
+   approach that succeeded.
+
+---
+
 ## Status pinpoint — end of Apr 13, 2026 session
 
 ### What this session accomplished
