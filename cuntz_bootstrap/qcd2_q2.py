@@ -49,6 +49,48 @@ from .wilson_loops import wilson_loop
 
 PLAQ = (1, 2, -1, -2)
 RECT_1x2 = (1, 2, 2, -1, -2, -2)
+RECT_2x1 = (1, 1, 2, -1, -1, -2)
+RECT_2x2 = (1, 1, 2, 2, -1, -1, -2, -2)
+RECT_3x1 = (1, 1, 1, 2, -1, -1, -1, -2)
+FIG8 = (1, 2, -1, -2, -1, 2, 1, -2)
+
+
+def factorization_loss(
+    U_list: list[jnp.ndarray], fock: CuntzFockJAX, D: int,
+) -> jnp.ndarray:
+    """N=infinity factorization constraints.
+
+    At N=inf, Wilson loops factor across self-intersection vertices and
+    obey the lattice area law for simple loops. We enforce a subset of
+    these identities:
+
+      (i) Figure-8 at origin = W[plaq]^2 (window decomposition)
+      (ii) 2x1 and 1x2 rectangles (area 2) = W[plaq]^2 (area law)
+      (iii) 2x2 square (area 4) = W[plaq]^4
+      (iv) 3x1 rectangle (area 3) = W[plaq]^3
+
+    These are the SAME identities that the supervised Q1 fit uses as
+    targets; here they enter as an UNSUPERVISED constraint because the
+    RHS depends only on W[plaq], not on the exact QCD_2 value.
+    """
+    W_plaq = jnp.real(wilson_loop(U_list, PLAQ, fock, D))
+    W_fig8 = jnp.real(wilson_loop(U_list, FIG8, fock, D))
+    W_2x1 = jnp.real(wilson_loop(U_list, RECT_2x1, fock, D))
+    W_1x2 = jnp.real(wilson_loop(U_list, RECT_1x2, fock, D))
+    W_2x2 = jnp.real(wilson_loop(U_list, RECT_2x2, fock, D))
+    W_3x1 = jnp.real(wilson_loop(U_list, RECT_3x1, fock, D))
+
+    p2 = W_plaq ** 2
+    p3 = W_plaq * p2
+    p4 = p2 * p2
+
+    loss = jnp.zeros((), dtype=jnp.float64)
+    loss = loss + (W_fig8 - p2) ** 2
+    loss = loss + (W_2x1 - p2) ** 2
+    loss = loss + (W_1x2 - p2) ** 2
+    loss = loss + (W_2x2 - p4) ** 2
+    loss = loss + (W_3x1 - p3) ** 2
+    return loss
 
 
 def plaquette_mm_residual(
@@ -78,13 +120,14 @@ def make_q2_loss(
     sym_generators: list[Callable],
     weights: dict,
 ) -> Callable:
-    """Unsupervised loss: plaquette MM + cyclicity + RP + sym.
+    """Unsupervised loss: plaquette MM + cyclicity + RP + sym + factorization.
 
-    weights keys: 'mm_plaq', 'cyc', 'rp', 'sym'."""
+    weights keys: 'mm_plaq', 'cyc', 'rp', 'sym', 'fact'."""
     w_mm = float(weights.get("mm_plaq", 0.0))
     w_cyc = float(weights.get("cyc", 0.0))
     w_rp = float(weights.get("rp", 0.0))
     w_sym = float(weights.get("sym", 0.0))
+    w_fact = float(weights.get("fact", 0.0))
 
     def loss_fn(params: list[jnp.ndarray], lam: float) -> jnp.ndarray:
         U_list = build_forward_link_ops_matfree(params, fock, word_pairs)
@@ -110,7 +153,14 @@ def make_q2_loss(
                 U_list, cyc_test_loops, sym_generators, fock, D
             )
 
-        return w_mm * L_mm + w_cyc * L_cyc + w_rp * L_rp + w_sym * L_sym
+        L_fact = jnp.zeros((), dtype=jnp.float64)
+        if w_fact > 0.0:
+            L_fact = factorization_loss(U_list, fock, D)
+
+        return (
+            w_mm * L_mm + w_cyc * L_cyc + w_rp * L_rp
+            + w_sym * L_sym + w_fact * L_fact
+        )
 
     return loss_fn
 
@@ -131,7 +181,9 @@ def run_q2_validation(
 ) -> dict:
     """Random-init unsupervised training at D=2 with exact plaquette MM."""
     if weights is None:
-        weights = {"mm_plaq": 1.0, "cyc": 10.0, "rp": 1.0, "sym": 1.0}
+        weights = {
+            "mm_plaq": 1.0, "cyc": 10.0, "rp": 1.0, "sym": 1.0, "fact": 10.0,
+        }
 
     output_dir.mkdir(parents=True, exist_ok=True)
     n_labels = 2 * D
