@@ -10,6 +10,85 @@
   - When adding a new entry, prepend it above the previous top entry.
 -->
 
+## Status pinpoint — end of Apr 13, 2026 session
+
+### What this session accomplished
+
+Seven commits, taking Phase 4 v3 from "Q1 at D=2 confirmed" to a full
+map of what works and what's left:
+
+| Commit | Content |
+|---|---|
+| 2680b63 | feat A' — `qcd2_q2.py` (D=2 Q2 unsupervised pipeline) + Discussion-31 |
+| d97bdce | docs Impl-33 — A' diagnosis: constraints satisfied but W wrong (Phase 1b R7) |
+| 74839a5 | feat A'' — add `factorization_loss` to `qcd2_q2.py` |
+| e74efe9 | docs Impl-34 — A'' D=2 Q2 PASSES at machine precision from random init |
+| 64e52a5 | feat B' — `phase_c_d3.py` supersedes v2 candidate-D-based script |
+| d7ff4bf | docs Impl-35 — D=3 Q1 PASSES at leading order; Q2 D=3 blocked |
+| (this) | docs — status pinpoint consolidating session |
+
+### Verdict table (Phase 4 v3 final)
+
+| | Q1 (representational) | Q2 (selectional, unsupervised) |
+|---|---|---|
+| D=2 | ✓ machine precision, L_max=8, robust across λ ∈ [2, 10] (Impl-27 → 30) | ✓ machine precision from random init (Impl-34) |
+| D=3 | ✓ leading-order, 10 planar loops at L_trunc=3 dim=259 (Impl-35) | ⚠ **BLOCKED** — needs D=3 Wilson-loop oracle |
+
+### The current blocker
+
+`find_exact_mm.py` uses `qcd2_wilson_loop` as oracle, which only handles
+directions ±1, ±2. At D=3, non-planar staples (ν = ±3 replacing an
+edge in the (1, 2) plane) produce loops spanning all three directions,
+and `qcd2_wilson_loop` raises `ValueError: Unsupported direction mu=-3`.
+
+Without those non-planar terms, the null-space scan at D=3 reduces to
+the D=2 case and finds only the Gross-Witten tautology — exactly the
+Impl-32 result restated in a larger space.
+
+### Three paths to unblock Q2 at D=3
+
+1. **Münster 1981 character expansion** to O(1/λ^4). Derive the
+   strong-coupling corrections from virtual perpendicular plaquettes.
+   Unbiased and arbitrary-loop. Scope: 1-2 sessions of physics coding.
+
+2. **Kazakov-Zheng SDP bootstrap bounds** (arXiv:2203.11360 D=3
+   section). Rigorous interval estimates; can feed midpoint to the
+   scanner and get MM equations up to bound-tightness.
+
+3. **Multi-λ Q1-trained models as empirical oracle.** Train `run_q1_d3`
+   at λ ∈ {5, 10, 20, 50, 100}, extract W[C] for every candidate loop
+   at every λ, feed to the null-space scanner. Fastest path
+   (4–5 × 10 min of compute); values are leading-order accurate so
+   any MM equation it finds is also leading-order accurate.
+
+### Recommendation
+
+Option 3 is the fastest demonstration path and is consistent with the
+rest of the Phase 4 workflow (empirical scanning + validation). Option
+1 gives a cleaner long-term infrastructure for Phase D. Option 2 is
+valuable as independent validation but does not by itself produce
+MM equations.
+
+### What is NOT blocking
+
+- L_max=10 at L_trunc=4 in D=2 (Impl-31 documented ceiling). Short loops
+  suffice for both Q1 and Q2.
+- Weak coupling at D=2 (gapped phase). Not needed for current tests.
+- Mixed `â†_u â_v` terms or L_trunc=5. Current ansatz structure is
+  sufficient.
+- D=4 (Phase D). Scope rule: after D=3 Q2 passes.
+
+### Infrastructure summary
+
+- Matfree hybrid H-build (`matfree_expm.assemble_hermitian_matfree`)
+  is now the production path at L_trunc ≥ 4 and at D=3.
+- All 100+ tests pass.
+- `optimize_cuntz` includes the Impl-19 JAX complex-gradient conj fix.
+- `find_exact_mm.py` scanner works at D=2 for planar loops; needs a
+  D=3 oracle injection point to generalize.
+
+---
+
 ## Implementation-35: Phase C D=3 Q1 PASSES; Q2 needs D=3 oracle (Apr 13, 2026)
 
 ### D=3 Q1 headline
