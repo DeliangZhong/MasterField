@@ -50,3 +50,33 @@ def test_g_positive_solve_flagged_invalid_by_gate():
     # confinement is still a true qualitative fact, just not a validated solution:
     O = [jnp.asarray(o) for o in r["operators"]]
     assert 0.0 < float(word_moment(O, (0, 0))) < 1.0
+
+
+@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+def test_g_positive_solve_validated_at_degree3():
+    # The fix for the degree-2 under-expressiveness: a degree-3 ansatz (cutoff at
+    # the exactness bound floor((2+3)/2)*3 = 6) solves the truncated loop equations
+    # to machine zero and lands the moment INSIDE the rigorous SDP island at g>0,
+    # so the fail-closed gate now PASSES — the moment a degree-2 solve parked below
+    # the lower bound. (Degree-2 floors sd_loss ~1e-3 at trM0^2~0.78 < lb here.)
+    ops = FockOps(2, 6)
+    ans = MultiMonomialAnsatz(ops, degree=3)
+    r = solve_two_matrix(ans, ops, 0.5, max_word_len=2, g_schedule=[0.25, 0.5],
+                         steps=2000, sdp_word_len=6)
+    assert r["validated"] is True
+    assert r["sd_loss"] < 1e-6                       # exact solution of the truncated loop eqs
+    assert r["validation"]["in_island"] is True
+    O = [jnp.asarray(o) for o in r["operators"]]
+    assert float(word_moment(O, (0, 0))) > 0.80      # clearly above the degree-2 floor (~0.78)
+
+
+def test_truncation_guard_is_degree_aware():
+    # The guard scales the required cutoff with ansatz degree: a degree-3 letter
+    # moves the Cuntz quanta count by +/-3, so the exact-moment cutoff is
+    # floor((max_word_len+3)/2)*degree = floor(5/2)*3 = 6. Cutoff 5 must be
+    # rejected even though 5 >= max_word_len+... (the OLD degree-blind guard,
+    # need = max_word_len+3 = 5, would have wrongly accepted it).
+    ops = FockOps(2, 5)
+    ans = MultiMonomialAnsatz(ops, degree=3)
+    with pytest.raises(ValueError):
+        solve_two_matrix(ans, ops, 0.5, max_word_len=2, validate=False)

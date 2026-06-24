@@ -101,18 +101,32 @@ def solve_two_matrix(
     is below `sd_tol` AND the target moment lies inside the rigorous
     bootstrap_two_matrix island. A low residual alone is NOT sufficient (it can be
     a spurious or truncation-contaminated state); callers MUST check `validated`.
-    At g=0 the free field is exact (validated True); at g>0 the current solve is
-    typically under-converged and returns validated=False (see `validation`).
+
+    Ansatz expressiveness is decisive at g>0. A degree-2 ansatz floors the SD
+    residual at ~1e-3 and parks the moment BELOW the SDP lower bound (validated
+    False) at every g≥0.2. A degree-3 ansatz — with the Fock cutoff at the
+    exactness bound enforced by the guard below — solves the truncated loop
+    equations to machine zero and lands the moment INSIDE the rigorous island
+    (validated True) across g∈[0.3,1.0] (e.g. g=1: tr M0²=0.69 ∈ [0.618,1.0]).
+    Use degree ≥ 3 for g>0. The exact moment still depends on the loop-equation
+    truncation `max_word_len` (it moves within the island as max_word_len grows).
     """
-    # Truncation guard: the SD residual evaluates commutator words of length
-    # |w|+3, so the Fock cutoff must at least represent them. (Necessary, not
-    # sufficient — full adequacy is what the SDP-island check below verifies.)
-    need = max_word_len + 3
+    # Truncation guard (degree-aware). The SD residual evaluates words up to
+    # length L = max_word_len + 3 (the commutator inserts 3 letters). Each
+    # degree-d ansatz letter changes the Cuntz quanta number by up to ±d, so a
+    # length-L vacuum→vacuum amplitude reaches at most ⌊L/2⌋·d quanta; the Fock
+    # cutoff must be at least that for every evaluated moment to be EXACT.
+    # Verified empirically: at this bound the degree-3 g>0 solve drives the SD
+    # residual to machine zero. The old flat `max_word_len+3` was correct only at
+    # degree 2 and would silently pass a contaminated higher-degree run.
+    degree = getattr(ansatz, "degree", 1)
+    need = ((max_word_len + 3) // 2) * degree
     if fock_ops.max_length < need:
         raise ValueError(
             f"Fock cutoff max_length={fock_ops.max_length} too small for "
-            f"max_word_len={max_word_len}: need >= {need} (commutator words have "
-            f"length |w|+3). Increase the Fock cutoff or lower max_word_len."
+            f"max_word_len={max_word_len}, ansatz degree={degree}: need >= {need} "
+            f"(= ⌊(max_word_len+3)/2⌋·degree). Increase the Fock cutoff, lower the "
+            f"ansatz degree, or lower max_word_len."
         )
 
     words = two_matrix_test_words(max_word_len)
