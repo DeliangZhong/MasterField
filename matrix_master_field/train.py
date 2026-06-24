@@ -94,6 +94,14 @@ def solve_two_matrix(
 
     g-homotopy from the exact g=0 free field upward; loss = SD residual +
     w_sym·(cyclicity+exchange+Z₂). Returns operators, params, and residuals.
+
+    STATUS (M3): g=0 is exact and the confinement trend is correct, but the g>0
+    solve is NOT yet validated — at g=1 its ⟨tr M0²⟩≈0.55 falls BELOW the rigorous
+    bootstrap_two_matrix lower bound (~0.62 at L=6), i.e. it is under-converged
+    (sd_loss ~1e-3, not machine zero). Landing inside the SDP island requires
+    tighter optimization (more steps/restarts, possibly higher truncation); a
+    high-budget attempt is expensive. Do NOT treat the g>0 output as the validated
+    master field until it sits inside the bootstrap_two_matrix island.
     """
     words = two_matrix_test_words(max_word_len)
     if g_schedule is None:

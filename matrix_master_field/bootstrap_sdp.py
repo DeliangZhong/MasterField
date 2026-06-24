@@ -118,6 +118,103 @@ def bootstrap_moment_bounds(v_prime_coeffs: list[float], max_moment: int = 10) -
     return bounds
 
 
+def _two_matrix_canon(w):
+    """Canonical word under cyclicity + M0↔M1 exchange; None if Z2×Z2 parity
+    forces the moment to vanish (odd count of any generator)."""
+    if any(w.count(c) % 2 == 1 for c in set(w)):
+        return None
+    if not w:
+        return ()
+    cands = []
+    for v in (w, tuple(1 - x for x in w)):  # exchange
+        for i in range(len(v)):  # cyclic
+            cands.append(v[i:] + v[:i])
+    return min(cands)
+
+
+def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True):
+    """SDP island bound on a single-trace moment of the commutator+mass two-matrix
+    model S = N·tr[½(M0²+M1²) − (g²/4)[M0,M1]²] at coupling g.
+
+    Relaxation bootstrap: moment matrix Ω⪰0 (state positivity), product matrix G
+    relaxing the factorized SD RHS (G[0,k]=m_k, G⪰0 ⇒ G⪰m mᵀ), commutator loop
+    equations, with cyclicity/exchange/Z2×Z2 baked into the canonicalization.
+    Returns min or max of the target moment (the island edge), or None.
+    """
+    if not HAS_CVXPY:
+        return None
+    from itertools import product as iproduct
+
+    canon = _two_matrix_canon
+    words = [()]
+    for L in range(1, max_word_len + 1):
+        words += [tuple(c) for c in iproduct((0, 1), repeat=L)]
+    canon_list = sorted({canon(w) for w in words} - {None}, key=lambda t: (len(t), t))
+    cidx = {c: i for i, c in enumerate(canon_list)}
+    nvar = len(canon_list)
+
+    M = cp.Variable(nvar, name="moments")
+    cons = [M[cidx[()]] == 1.0]
+
+    def me(w):  # cvxpy moment expression (0.0 if parity-forbidden)
+        c = canon(w)
+        return 0.0 if c is None else M[cidx[c]]
+
+    # Moment matrix Ω_{ij} = m(reverse(b_i)+b_j) ⪰ 0  (word† = reversed word).
+    half = max_word_len // 2
+    basis = [()]
+    for L in range(1, half + 1):
+        basis += [tuple(c) for c in iproduct((0, 1), repeat=L)]
+    nb = len(basis)
+    Omega = cp.Variable((nb, nb), symmetric=True, name="Omega")
+    for i in range(nb):
+        for j in range(i, nb):
+            cons.append(Omega[i, j] == me(tuple(reversed(basis[i])) + basis[j]))
+    cons.append(Omega >> 0)
+
+    # Product matrix G_{kl} relaxing m_k·m_l (G[0,:]=m, G⪰0 ⇒ G⪰m mᵀ).
+    G = cp.Variable((nvar, nvar), symmetric=True, name="Products")
+    for k in range(nvar):
+        cons.append(G[cidx[()], k] == M[k])
+    cons.append(G >> 0)
+
+    # Commutator-model loop equations: V'_a = M_a + (g²/2)(M_a M_b² + M_b² M_a − 2 M_b M_a M_b).
+    g2 = float(g) * float(g)
+    test_words = [()]
+    for L in range(1, max(1, max_word_len - 3) + 1):
+        test_words += [tuple(c) for c in iproduct((0, 1), repeat=L)]
+    for w in test_words:
+        for a in (0, 1):
+            b = 1 - a
+            lhs = me((a,) + w)
+            if g2 != 0.0:
+                lhs = lhs + (g2 / 2.0) * (
+                    me((a, b, b) + w) + me((b, b, a) + w) - 2.0 * me((b, a, b) + w)
+                )
+            rhs = 0.0
+            for j in range(len(w)):
+                if w[j] == a:
+                    cl, cr = canon(w[:j]), canon(w[j + 1:])
+                    if cl is None or cr is None:
+                        continue  # product of a parity-forbidden (zero) moment
+                    rhs = rhs + G[cidx[cl], cidx[cr]]
+            cons.append(lhs == rhs)
+
+    tc = canon(target_word)
+    if tc is None:
+        return 0.0  # parity-forbidden moment is exactly 0
+    obj = cp.Maximize(M[cidx[tc]]) if maximize else cp.Minimize(M[cidx[tc]])
+    problem = cp.Problem(obj, cons)
+    try:
+        problem.solve(max_iters=20000)
+        if problem.status in ("optimal", "optimal_inaccurate"):
+            return float(problem.value)
+        return None
+    except Exception as e:  # pragma: no cover
+        print(f"two-matrix SDP error: {e}")
+        return None
+
+
 if __name__ == "__main__":
     if not HAS_CVXPY:
         print("Install cvxpy to run bootstrap validation")
