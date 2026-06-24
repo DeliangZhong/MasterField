@@ -55,40 +55,36 @@ def bootstrap_one_matrix(
         for k in range(1, K + 1, 2):
             constraints.append(m[k] == 0.0)
 
-    # Moment matrix (Hankel matrix): H_{ij} = m_{i+j}
-    # Size chosen so all SD splitting indices fit within H
-    half_K = K - max(n_v, 1)
-    half_K = max(half_K, K // 2)  # at least K//2
+    # Hankel (moment) matrix H_{ij} = m_{i+j} ⪰ 0 — positivity of the eigenvalue
+    # measure (the classical Hamburger moment condition).
+    half_K = max(K - max(n_v, 1), K // 2)
     H = cp.Variable((half_K + 1, half_K + 1), symmetric=True, name="Hankel")
-
-    # Link H to moments
     for i in range(half_K + 1):
         for j in range(i, half_K + 1):
             if i + j <= K:
                 constraints.append(H[i, j] == m[i + j])
-
-    # PSD constraint
     constraints.append(H >> 0)
 
-    # Linearised SD equations: replace bilinear m_j * m_k with H[j, k]
-    # SD equation: Σ_k v_k m_{n+k} = Σ_{j=0}^{n-1} H[j, n-j-1]
-    for n in range(0, min(K - n_v + 1, K)):
-        # LHS: Σ_k v_k m_{n+k}  from tr[V'(M) M^n] = Σ_k v_k tr[M^{k+n}]
+    # Product matrix Q_{jk} relaxing the bilinear m_j·m_k (Lasserre rank-1
+    # relaxation). The large-N SD RHS is Σ_j m_j m_{n-1-j} — a PRODUCT of moments,
+    # NOT the Hankel entry m_{j+(n-1-j)}. Encode it linearly: Q symmetric,
+    # Q[0,k] = m_k (since m_0 = 1), Q ⪰ 0 ⇒ Q ⪰ m mᵀ. The exact solution
+    # Q = m mᵀ is feasible, so optimizing a moment over this set brackets it.
+    qd = max(K, 1)  # indices 0..K-1 cover every loop-equation split
+    Q = cp.Variable((qd, qd), symmetric=True, name="Products")
+    for k in range(qd):
+        constraints.append(Q[0, k] == m[k])
+    constraints.append(Q >> 0)
+
+    # SD equations: Σ_k v_k m_{n+k} = Σ_{j=0}^{n-1} Q[j, n-1-j].
+    for n in range(0, max(1, K - n_v + 1)):
         lhs = 0
         for k in range(n_v):
-            idx = n + k
-            if 0 <= idx <= K:
-                lhs += v_prime_coeffs[k] * m[idx]
-
-        # RHS: Σ_{j=0}^{n-1} H[j, n-j-1] (linearised splitting)
-        rhs = 0
-        for j in range(n):
-            j_idx = j
-            k_idx = n - j - 1
-            if 0 <= j_idx <= half_K and 0 <= k_idx <= half_K:
-                rhs += H[j_idx, k_idx]
-
-        constraints.append(lhs == rhs)
+            if 0 <= n + k <= K:
+                lhs += v_prime_coeffs[k] * m[n + k]
+        if all(j < qd and (n - 1 - j) < qd for j in range(n)):
+            rhs = sum(Q[j, n - 1 - j] for j in range(n))
+            constraints.append(lhs == rhs)
 
     # Objective
     if maximize:
