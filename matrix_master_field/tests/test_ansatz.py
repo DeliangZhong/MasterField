@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 
-from matrix_master_field.ansatz import MonomialAnsatz
+from matrix_master_field.ansatz import DenseHermitianAnsatz, MonomialAnsatz
 from matrix_master_field.fock_jax import FockOps, power_moments
 
 
@@ -21,3 +21,12 @@ def test_degree1_can_represent_free_field():
     m = np.asarray(power_moments(M, 4))
     # M = â + â† => semicircle/Catalan: m_2 = 1, m_4 = 2
     assert np.isclose(m[2], 1.0) and np.isclose(m[4], 2.0)
+
+
+def test_dense_hermitian_operators_are_hermitian():
+    ops = FockOps(1, 6)
+    ans = DenseHermitianAnsatz(ops)
+    params = ans.init_params(jax.random.PRNGKey(0))
+    M = np.asarray(ans.build_operators(params)[0])
+    assert np.allclose(M, M.T, atol=1e-12)
+    assert ans.n_params == ops.D * ops.D

@@ -4,9 +4,10 @@ Each ansatz exposes:
     init_params(key) -> pytree
     build_operators(params) -> list[jnp D×D Hermitian]   (one per matrix)
 
-Milestone 2 compares three: MonomialAnsatz (here), DenseHermitianAnsatz,
-and the amortized network (amortized.py). All guarantee M̂_i = M̂_i†, so the
-vacuum state τ(·)=⟨Ω|·|Ω⟩ is automatically a positive state.
+Milestone 2 compares three: MonomialAnsatz (structured, low-degree),
+DenseHermitianAnsatz (maximal flexibility), and the amortized network
+(amortized.py). All guarantee M̂_i = M̂_i†, so the vacuum state τ(·)=⟨Ω|·|Ω⟩
+is automatically a positive state.
 """
 
 import jax
@@ -65,3 +66,26 @@ class MonomialAnsatz:
 
     def build_operators(self, params):
         return [jnp.tensordot(params, self.H, axes=1)]
+
+
+class DenseHermitianAnsatz:
+    """M̂ = (W + Wᵀ)/2 — any real-symmetric D×D operator (maximal flexibility).
+
+    Ignores the â (creation/annihilation) structure entirely; the comparison
+    baseline for over-parametrization and spurious-solution behavior. Moments
+    are still ⟨Ω|M̂^k|Ω⟩ and positivity is automatic. n_matrices == 1 (M2).
+    """
+
+    def __init__(self, fock_ops: FockOps):
+        if fock_ops.n != 1:
+            raise NotImplementedError("DenseHermitianAnsatz multi-matrix: Milestone 3")
+        self.ops = fock_ops
+        self.D = fock_ops.D
+        self.n_params = self.D * self.D
+
+    def init_params(self, key):
+        return 0.01 * jax.random.normal(key, (self.n_params,), dtype=jnp.float64)
+
+    def build_operators(self, params):
+        W = params.reshape(self.D, self.D)
+        return [(W + W.T) / 2.0]
