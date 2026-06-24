@@ -153,3 +153,40 @@ class MultiMonomialAnsatz:
             A = jnp.tensordot(params[i], self.M, axes=1)
             ops.append((A + A.T) / 2.0)
         return ops
+
+
+class MultiDenseHermitianAnsatz:
+    """Multi-matrix maximal-flexibility ansatz: M̂_i = (W_i + W_iᵀ)/2, any
+    real-symmetric D×D operator per matrix (D·D params each).
+
+    Cross-check for the bounded-degree MultiMonomialAnsatz: if both land at the
+    same in-island moment, the monomial result is not an artifact of its
+    restricted form (the Milestone-3 spurious-solution guard). Being fully
+    flexible, it can equally represent (and so stress-test) a spurious, non-tracial
+    minimum — which is why the symmetry penalties matter here.
+
+    NOTE: this ansatz is full-rank, NOT bounded-degree, so the monomial
+    exactness/cutoff guard in `train.solve_two_matrix` does not apply — word
+    moments are exact on the truncated D-dim space by construction (no intermediate
+    state is projected out). It therefore exposes no `degree` attribute (the guard
+    defaults it to 1, which trivially passes).
+    """
+
+    def __init__(self, fock_ops: FockOps):
+        self.ops = fock_ops
+        self.n = fock_ops.n
+        self.D = fock_ops.D
+        self.n_params = self.n * self.D * self.D
+        # free field M̂_i = â_i + â†_i = a_i + a_iᵀ (â† = âᵀ), already symmetric.
+        self._free = jnp.stack(
+            [fock_ops.a[i] + fock_ops.adag[i] for i in range(self.n)]
+        )
+
+    def init_params(self, key):
+        return 0.01 * jax.random.normal(key, (self.n, self.D, self.D), dtype=jnp.float64)
+
+    def params_for_free_field(self):
+        return self._free  # W_i = a_i + a_iᵀ ⇒ (W_i + W_iᵀ)/2 = â_i + â†_i
+
+    def build_operators(self, params):
+        return [(params[i] + params[i].T) / 2.0 for i in range(self.n)]

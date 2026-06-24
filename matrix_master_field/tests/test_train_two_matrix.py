@@ -1,3 +1,5 @@
+import os
+
 import jax.numpy as jnp
 import pytest
 
@@ -53,21 +55,39 @@ def test_g_positive_solve_flagged_invalid_by_gate():
 
 
 @pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
-def test_g_positive_solve_validated_at_degree3():
-    # The fix for the degree-2 under-expressiveness: a degree-3 ansatz (cutoff at
-    # the exactness bound floor((2+3)/2)*3 = 6) solves the truncated loop equations
-    # to machine zero and lands the moment INSIDE the rigorous SDP island at g>0,
-    # so the fail-closed gate now PASSES — the moment a degree-2 solve parked below
-    # the lower bound. (Degree-2 floors sd_loss ~1e-3 at trM0^2~0.78 < lb here.)
+def test_gate_rejects_low_max_word_len_truncation_artifact():
+    # A degree-3 ansatz solves the max_word_len=2 loop equations to MACHINE ZERO,
+    # but 2 is too few equations to pin the moment: at g=1 it lands tr M0²≈0.80,
+    # which the loose L=6 island [0.62,1.0] admits yet the tight L=8 island
+    # [0.63,0.73] rejects. So a low residual is NOT sufficient — checked at L=8 the
+    # fail-closed gate correctly flags this truncation artifact as NOT validated.
     ops = FockOps(2, 6)
     ans = MultiMonomialAnsatz(ops, degree=3)
-    r = solve_two_matrix(ans, ops, 0.5, max_word_len=2, g_schedule=[0.25, 0.5],
-                         steps=2000, sdp_word_len=6)
-    assert r["validated"] is True
-    assert r["sd_loss"] < 1e-6                       # exact solution of the truncated loop eqs
-    assert r["validation"]["in_island"] is True
+    r = solve_two_matrix(ans, ops, 1.0, max_word_len=2, g_schedule=[0.5, 1.0],
+                         steps=2000, sdp_word_len=8)
+    assert r["sd_loss"] < 1e-6                        # solves its (few) max_word_len=2 eqs exactly
     O = [jnp.asarray(o) for o in r["operators"]]
-    assert float(word_moment(O, (0, 0))) > 0.80      # clearly above the degree-2 floor (~0.78)
+    assert float(word_moment(O, (0, 0))) > 0.75       # artifact sits high (~0.80)
+    assert r["validation"]["in_island"] is False      # ...outside the tight L=8 island
+    assert r["validated"] is False                     # fail-closed catches the artifact
+
+
+@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+@pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
+                    reason="slow: dim-1023 max_word_len=3 solve (~7 min); set MMF_SLOW=1")
+def test_max_word_len3_solve_validated_in_tight_island():
+    # The genuine g>0 result: at max_word_len=3 (cutoff ⌊6/2⌋·3=9, dim 1023) the
+    # degree-3 operator solve lands tr M0²≈0.69 at g=1, INSIDE the tight L=8 island
+    # [0.63,0.73] — operator and bootstrap agree to ~1%. The fail-closed gate passes.
+    ops = FockOps(2, 9)
+    ans = MultiMonomialAnsatz(ops, degree=3)
+    r = solve_two_matrix(ans, ops, 1.0, max_word_len=3, g_schedule=[0.5, 1.0],
+                         steps=1500, sdp_word_len=8)
+    assert r["sd_loss"] < 1e-8                         # exact solution of the loop equations
+    assert r["validation"]["in_island"] is True
+    assert r["validated"] is True
+    O = [jnp.asarray(o) for o in r["operators"]]
+    assert 0.63 < float(word_moment(O, (0, 0))) < 0.73
 
 
 def test_truncation_guard_is_degree_aware():

@@ -90,7 +90,7 @@ def solve(ansatz, v_prime, fock_ops, K, *, n_restarts=4, steps=3000, lr=1e-2, se
 def solve_two_matrix(
     ansatz, fock_ops, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
     steps=4000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
-    sdp_word_len=6, sd_tol=1e-4, island_tol=1e-3,
+    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3,
 ):
     """Solve the commutator+mass two-matrix master field at coupling g_target.
 
@@ -110,6 +110,15 @@ def solve_two_matrix(
     (validated True) across g∈[0.3,1.0] (e.g. g=1: tr M0²=0.69 ∈ [0.618,1.0]).
     Use degree ≥ 3 for g>0. The exact moment still depends on the loop-equation
     truncation `max_word_len` (it moves within the island as max_word_len grows).
+
+    Validation order matters. The island is checked at `sdp_word_len` (default 8).
+    L=6 is too loose to reject low-`max_word_len` truncation artifacts: at g=1 the
+    L=6 island is [0.62,1.0], but L=8 tightens to ≈[0.63,0.73] and L=10 to
+    ≈[0.69,0.71]. A `max_word_len`=2 solve lands tr M0²≈0.80 (inside L=6 but OUTSIDE
+    L=8 — an artifact); only `max_word_len`≥3 lands inside the tight island
+    (≈0.69, matching the bootstrap). Use max_word_len ≥ 3 AND sdp_word_len ≥ 8 for
+    a meaningful g>0 guard. (SCS accuracy degrades at high L — see the M3 results
+    doc; a high-accuracy conic solver is the rigorous follow-up.)
     """
     # Truncation guard (degree-aware). The SD residual evaluates words up to
     # length L = max_word_len + 3 (the commutator inserts 3 letters). Each
