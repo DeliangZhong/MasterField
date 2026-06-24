@@ -4,11 +4,12 @@ Each ansatz exposes:
     init_params(key) -> pytree
     build_operators(params) -> list[jnp D×D Hermitian]   (one per matrix)
 
-Milestone 2 compares three: MonomialAnsatz (structured, low-degree),
-DenseHermitianAnsatz (maximal flexibility), and the amortized network
-(amortized.py). All guarantee M̂_i = M̂_i†, so the vacuum state τ(·)=⟨Ω|·|Ω⟩
-is automatically a positive state.
+All guarantee M̂_i = M̂_i†, so the vacuum state τ(·)=⟨Ω|·|Ω⟩ is automatically a
+positive state. Three single-matrix ansätze were compared in Milestone 2
+(monomial wins); MultiMonomialAnsatz is the Milestone-3 multi-matrix extension.
 """
+
+from itertools import product as _product
 
 import jax
 
@@ -24,12 +25,12 @@ class MonomialAnsatz:
     """M̂ = Σ_k c_k H_k with H_k = (â†)^p â^q + h.c. (p ≤ q, p+q ≤ degree).
 
     Each H_k is real-symmetric (â† = âᵀ here), so M̂ is Hermitian for real c_k.
-    Implemented for n_matrices == 1 (Milestone 2); multi-matrix is Milestone 3.
+    Single-matrix (n_matrices == 1).
     """
 
     def __init__(self, fock_ops: FockOps, degree: int):
         if fock_ops.n != 1:
-            raise NotImplementedError("MonomialAnsatz multi-matrix: Milestone 3")
+            raise NotImplementedError("MonomialAnsatz is single-matrix; use MultiMonomialAnsatz")
         self.ops = fock_ops
         self.degree = degree
         D = fock_ops.D
@@ -44,24 +45,23 @@ class MonomialAnsatz:
 
         keys, mats = [], []
         for q in range(degree + 1):
-            for p in range(q + 1):  # p <= q
+            for p in range(q + 1):
                 if p + q > degree:
                     continue
-                mono = adag_pow[p] @ a_pow[q]  # (â†)^p â^q
-                H = mono if p == q else mono + adag_pow[q] @ a_pow[p]  # + h.c.
+                mono = adag_pow[p] @ a_pow[q]
+                H = mono if p == q else mono + adag_pow[q] @ a_pow[p]
                 keys.append((p, q))
                 mats.append(H)
 
         self.keys = keys
-        self.H = jnp.asarray(np.stack(mats), dtype=jnp.float64)  # [P, D, D]
+        self.H = jnp.asarray(np.stack(mats), dtype=jnp.float64)
         self.n_params = len(keys)
-        self._free_idx = keys.index((0, 1))  # the â + â† combination
+        self._free_idx = keys.index((0, 1))
 
     def init_params(self, key):
         return 0.01 * jax.random.normal(key, (self.n_params,), dtype=jnp.float64)
 
     def params_for_free_field(self):
-        """Coefficients selecting M̂ = â + â† (the free/Gaussian master field)."""
         return jnp.zeros(self.n_params, dtype=jnp.float64).at[self._free_idx].set(1.0)
 
     def build_operators(self, params):
@@ -71,14 +71,12 @@ class MonomialAnsatz:
 class DenseHermitianAnsatz:
     """M̂ = (W + Wᵀ)/2 — any real-symmetric D×D operator (maximal flexibility).
 
-    Ignores the â (creation/annihilation) structure entirely; the comparison
-    baseline for over-parametrization and spurious-solution behavior. Moments
-    are still ⟨Ω|M̂^k|Ω⟩ and positivity is automatic. n_matrices == 1 (M2).
+    Single-matrix comparison baseline (Milestone 2).
     """
 
     def __init__(self, fock_ops: FockOps):
         if fock_ops.n != 1:
-            raise NotImplementedError("DenseHermitianAnsatz multi-matrix: Milestone 3")
+            raise NotImplementedError("DenseHermitianAnsatz is single-matrix")
         self.ops = fock_ops
         self.D = fock_ops.D
         self.n_params = self.D * self.D
@@ -89,3 +87,69 @@ class DenseHermitianAnsatz:
     def build_operators(self, params):
         W = params.reshape(self.D, self.D)
         return [(W + W.T) / 2.0]
+
+
+def _words(n, max_len):
+    out = {0: [()]}
+    for L in range(1, max_len + 1):
+        out[L] = [tuple(c) for c in _product(range(n), repeat=L)]
+    return out
+
+
+class MultiMonomialAnsatz:
+    """Multi-matrix monomial ansatz (Milestone 3).
+
+    For each matrix i: A_i = Σ_k c^{(i)}_k · (â†_u â_v),  M̂_i = (A_i + A_iᵀ)/2,
+    over all word-monomials (u,v) with |u|+|v| ≤ degree in the n-letter alphabet.
+    The symmetrization makes M̂_i Hermitian (â† = âᵀ ⇒ real symmetric). params is
+    an array of shape (n, n_monomials).
+    """
+
+    def __init__(self, fock_ops: FockOps, degree: int):
+        self.ops = fock_ops
+        self.n = fock_ops.n
+        self.degree = degree
+        D = fock_ops.D
+        a = [np.asarray(fock_ops.a[i]) for i in range(self.n)]
+        adag = [np.asarray(fock_ops.adag[i]) for i in range(self.n)]
+        I = np.eye(D)
+
+        def word_mat(letters, ops_list):
+            m = I
+            for x in letters:
+                m = m @ ops_list[x]
+            return m
+
+        words = _words(self.n, degree)
+        keys, mats = [], []
+        for total in range(degree + 1):
+            for p in range(total + 1):
+                q = total - p
+                for u in words[p]:
+                    for v in words[q]:
+                        mats.append(word_mat(u, adag) @ word_mat(v, a))  # â†_u â_v
+                        keys.append((u, v))
+
+        self.keys = keys
+        self.M = jnp.asarray(np.stack(mats), dtype=jnp.float64)  # [P, D, D]
+        self.n_monomials = len(keys)
+        self.n_params = self.n * self.n_monomials
+        # index of the pure-annihilation monomial â_i = (u=(), v=(i,)) per matrix
+        self._free_idx = [keys.index(((), (i,))) for i in range(self.n)]
+
+    def init_params(self, key):
+        return 0.01 * jax.random.normal(key, (self.n, self.n_monomials), dtype=jnp.float64)
+
+    def params_for_free_field(self):
+        """M̂_i = â_i + â†_i:  A_i = 2 â_i  ⇒  (A_i+A_iᵀ)/2 = â_i + â_iᵀ."""
+        p = np.zeros((self.n, self.n_monomials))
+        for i in range(self.n):
+            p[i, self._free_idx[i]] = 2.0
+        return jnp.asarray(p, dtype=jnp.float64)
+
+    def build_operators(self, params):
+        ops = []
+        for i in range(self.n):
+            A = jnp.tensordot(params[i], self.M, axes=1)
+            ops.append((A + A.T) / 2.0)
+        return ops
