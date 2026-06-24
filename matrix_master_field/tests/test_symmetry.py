@@ -11,6 +11,15 @@ from matrix_master_field.loss import (
 )
 
 
+def test_z2_detects_even_length_parity_violation():
+    # M0 = M1 = x0 ⇒ ⟨tr M0 M1⟩ = ⟨tr x0²⟩ = 1 ≠ 0. The word (0,1) is EVEN length
+    # but has odd per-generator counts, so Z2×Z2 must penalize it (the old
+    # odd-total-length check would have missed it entirely).
+    ops = FockOps(2, 6)
+    x0 = ops.a[0] + ops.adag[0]
+    assert float(z2_loss([x0, x0], two_matrix_test_words(3))) > 1e-3
+
+
 def test_free_field_satisfies_symmetries():
     ops = FockOps(2, 6)
     ans = MultiMonomialAnsatz(ops, degree=2)

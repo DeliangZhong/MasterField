@@ -112,11 +112,15 @@ def exchange_loss(ops_list, words):
 
 
 def z2_loss(ops_list, words):
-    """Penalize nonzero odd-length word moments — Z₂ (M→−M) symmetry."""
+    """Z₂×Z₂ parity: each M_i→−M_i is independently a symmetry of the
+    commutator+mass action, so any word with an ODD count of ANY generator has a
+    vanishing moment (e.g. ⟨tr M₀M₁⟩, ⟨tr M₀³M₁⟩). Stronger than odd-total-length:
+    cyclicity/exchange only RELATE such moments; they do not force them to zero.
+    """
     total = jnp.asarray(0.0, dtype=jnp.float64)
     n = 0
     for w in words:
-        if len(w) % 2 == 1:
+        if any(w.count(c) % 2 == 1 for c in set(w)):
             total = total + word_moment(ops_list, w) ** 2
             n += 1
     return total / max(n, 1)
