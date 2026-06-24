@@ -20,7 +20,8 @@ import numpy as np  # noqa: E402
 import optax  # noqa: E402
 import scipy.optimize as sopt  # noqa: E402
 
-from matrix_master_field.fock_jax import power_moments  # noqa: E402
+from matrix_master_field.bootstrap_sdp import HAS_CVXPY, bootstrap_two_matrix  # noqa: E402
+from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
     one_matrix_sd_residual,
     symmetry_losses,
@@ -87,22 +88,33 @@ def solve(ansatz, v_prime, fock_ops, K, *, n_restarts=4, steps=3000, lr=1e-2, se
 
 
 def solve_two_matrix(
-    ansatz, fock_ops, g_target, *, max_word_len=4, w_sym=10.0,
-    g_schedule=None, steps=4000, lr=5e-3, polish=True,
+    ansatz, fock_ops, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
+    steps=4000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
+    sdp_word_len=6, sd_tol=1e-4, island_tol=1e-3,
 ):
     """Solve the commutator+mass two-matrix master field at coupling g_target.
 
     g-homotopy from the exact g=0 free field upward; loss = SD residual +
-    w_sym·(cyclicity+exchange+Z₂). Returns operators, params, and residuals.
+    w_sym·(cyclicity+exchange+Z₂).
 
-    STATUS (M3): g=0 is exact and the confinement trend is correct, but the g>0
-    solve is NOT yet validated — at g=1 its ⟨tr M0²⟩≈0.55 falls BELOW the rigorous
-    bootstrap_two_matrix lower bound (~0.62 at L=6), i.e. it is under-converged
-    (sd_loss ~1e-3, not machine zero). Landing inside the SDP island requires
-    tighter optimization (more steps/restarts, possibly higher truncation); a
-    high-budget attempt is expensive. Do NOT treat the g>0 output as the validated
-    master field until it sits inside the bootstrap_two_matrix island.
+    FAILS CLOSED. The returned dict carries `validated`: True ONLY if the residual
+    is below `sd_tol` AND the target moment lies inside the rigorous
+    bootstrap_two_matrix island. A low residual alone is NOT sufficient (it can be
+    a spurious or truncation-contaminated state); callers MUST check `validated`.
+    At g=0 the free field is exact (validated True); at g>0 the current solve is
+    typically under-converged and returns validated=False (see `validation`).
     """
+    # Truncation guard: the SD residual evaluates commutator words of length
+    # |w|+3, so the Fock cutoff must at least represent them. (Necessary, not
+    # sufficient — full adequacy is what the SDP-island check below verifies.)
+    need = max_word_len + 3
+    if fock_ops.max_length < need:
+        raise ValueError(
+            f"Fock cutoff max_length={fock_ops.max_length} too small for "
+            f"max_word_len={max_word_len}: need >= {need} (commutator words have "
+            f"length |w|+3). Increase the Fock cutoff or lower max_word_len."
+        )
+
     words = two_matrix_test_words(max_word_len)
     if g_schedule is None:
         g_schedule = [g_target * t for t in (0.2, 0.4, 0.6, 0.8, 1.0)]
@@ -121,10 +133,29 @@ def solve_two_matrix(
             params = _lbfgs_polish(loss_fn, params)
 
     ops = ansatz.build_operators(params)
-    return {
+    sd_loss = float(two_matrix_sd_residual(ops, words, g_target))
+    result = {
         "operators": [np.asarray(o) for o in ops],
         "params": params,
         "g": g_target,
-        "sd_loss": float(two_matrix_sd_residual(ops, words, g_target)),
+        "sd_loss": sd_loss,
         "sym_loss": float(symmetry_losses(ops, words)),
     }
+
+    if validate:
+        tr_target = float(word_moment(ops, target_word))
+        sd_ok = sd_loss < sd_tol
+        lb = ub = in_island = None
+        if HAS_CVXPY:
+            lb = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
+                                      target_word=target_word, maximize=False)
+            ub = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
+                                      target_word=target_word, maximize=True)
+            if lb is not None and ub is not None:
+                in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
+        result["validation"] = {
+            "target_word": target_word, "target_value": tr_target,
+            "sd_ok": sd_ok, "island": (lb, ub), "in_island": in_island,
+        }
+        result["validated"] = bool(sd_ok and in_island is True)
+    return result

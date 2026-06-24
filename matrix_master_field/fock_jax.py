@@ -21,6 +21,7 @@ class FockOps:
     def __init__(self, n_matrices: int, max_length: int):
         base = CuntzFockSpace(n_matrices, max_length)
         self.n = n_matrices
+        self.max_length = max_length  # Fock word-length cutoff
         self.D = base.dim
         self.a = [jnp.asarray(base.a(i), dtype=jnp.float64) for i in range(n_matrices)]
         self.adag = [jnp.asarray(base.adag(i), dtype=jnp.float64) for i in range(n_matrices)]
