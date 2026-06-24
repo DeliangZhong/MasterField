@@ -5,7 +5,10 @@ Two-matrix commutator+mass model (matches schwinger_dyson.TwoMatrixSD), action
 S = N·tr[½(M₁²+M₂²) − (g²/4)[M₁,M₂]²]:
     V'_a = M_a + (g²/2)(M_a M_b² + M_b² M_a − 2 M_b M_a M_b),
     ⟨tr(V'_a·w)⟩ = Σ_{j: w[j]=a} ⟨tr w_left⟩⟨tr w_right⟩  (factorized at N=∞).
-Relative-scaled mean-squared residual; differentiable in the moments/operators.
+
+Symmetry losses enforce the properties the Cuntz vacuum does NOT give for free:
+trace cyclicity (the vacuum is not tracial), M₁↔M₂ exchange, and Z₂ (M→−M).
+Relative-scaled mean-squared residuals; differentiable in the moments/operators.
 """
 
 from itertools import product as _product
@@ -72,3 +75,57 @@ def two_matrix_sd_residual(ops_list, test_words, g):
             total = total + ((lhs - rhs) / scale) ** 2
             n_eqs += 1
     return total / max(n_eqs, 1)
+
+
+# ─── Symmetry losses (NOT automatic on the Cuntz vacuum) ──────────────────────
+
+def _rotations(w):
+    return [w[i:] + w[:i] for i in range(len(w))]
+
+
+def cyclicity_loss(ops_list, words):
+    """Penalize τ(w) ≠ τ(cyclic rotation of w) — enforces a tracial state."""
+    total = jnp.asarray(0.0, dtype=jnp.float64)
+    n = 0
+    for w in words:
+        if len(w) < 2:
+            continue
+        rots = _rotations(w)
+        m0 = word_moment(ops_list, rots[0])
+        for r in rots[1:]:
+            total = total + (word_moment(ops_list, r) - m0) ** 2
+            n += 1
+    return total / max(n, 1)
+
+
+def exchange_loss(ops_list, words):
+    """Penalize τ(w(M₁,M₂)) ≠ τ(w(M₂,M₁)) — M₁↔M₂ exchange symmetry (n=2)."""
+    total = jnp.asarray(0.0, dtype=jnp.float64)
+    n = 0
+    for w in words:
+        if not w:
+            continue
+        sw = tuple(1 - x for x in w)
+        total = total + (word_moment(ops_list, w) - word_moment(ops_list, sw)) ** 2
+        n += 1
+    return total / max(n, 1)
+
+
+def z2_loss(ops_list, words):
+    """Penalize nonzero odd-length word moments — Z₂ (M→−M) symmetry."""
+    total = jnp.asarray(0.0, dtype=jnp.float64)
+    n = 0
+    for w in words:
+        if len(w) % 2 == 1:
+            total = total + word_moment(ops_list, w) ** 2
+            n += 1
+    return total / max(n, 1)
+
+
+def symmetry_losses(ops_list, words):
+    """Sum of cyclicity + exchange + Z₂ penalties."""
+    return (
+        cyclicity_loss(ops_list, words)
+        + exchange_loss(ops_list, words)
+        + z2_loss(ops_list, words)
+    )
