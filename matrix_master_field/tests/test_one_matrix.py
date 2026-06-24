@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from matrix_master_field import one_matrix as om
 
@@ -31,3 +32,23 @@ def test_quartic_sd_moments_match_density_moments():
     m_rho = om.moments_from_density(x, rho, 8)
     for k in range(0, 9, 2):
         assert abs(m_sd[k] - m_rho[k]) < 1e-3, f"m_{k}: {m_sd[k]} vs {m_rho[k]}"
+
+
+def test_gaussian_resolvent_asymptotics_both_sheets():
+    # R(ζ) ~ 1/ζ as |ζ|→∞ on BOTH real sheets (the bug: principal branch gave
+    # R≈ζ for ζ<0). Check positive, negative, and complex ζ.
+    for z in [50.0, -50.0, 40 + 1j, -40 - 2j]:
+        R = complex(om.gaussian_resolvent(z))
+        assert abs(R - 1.0 / z) < 1e-2, f"R({z})={R} vs 1/z={1/z}"
+
+
+def test_gaussian_resolvent_density_positive_on_cut():
+    # ρ(x) = -(1/π) Im R(x+i0⁺) must be positive on the support [-2,2].
+    for x in [0.0, 1.0, -1.0]:
+        R = complex(om.gaussian_resolvent(x + 1j * 1e-7))
+        assert -R.imag / np.pi > 0.0, f"density at {x} not positive"
+
+
+def test_quartic_resolvent_raises():
+    with pytest.raises(NotImplementedError):
+        om.quartic_resolvent(2.0, 0.5)

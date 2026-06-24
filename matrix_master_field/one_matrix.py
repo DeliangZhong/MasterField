@@ -17,9 +17,18 @@ from scipy.optimize import brentq
 # ══════════════════════════════════════════════════════════
 
 
-def gaussian_resolvent(zeta: complex) -> complex:
-    """R(ζ) = (ζ - √(ζ²-4)) / 2 for the Gaussian (Wigner semicircle)."""
-    return (zeta - np.sqrt(zeta**2 - 4 + 0j)) / 2
+def gaussian_resolvent(zeta):
+    """R(ζ) = (ζ − √(ζ²−4))/2 for the Gaussian (Wigner semicircle).
+
+    Uses the PHYSICAL branch of the square root: √(ζ²−4) ~ ζ as |ζ|→∞ with the
+    cut on [−2, 2], so R(ζ) ~ 1/ζ on BOTH real sheets (the principal branch
+    fails this for ζ<0). Works for scalar or array input.
+    """
+    z = np.asarray(zeta, dtype=complex)
+    s = np.sqrt(z * z - 4.0)
+    # principal √ gives s ~ +|ζ|; flip onto the branch s ~ ζ (so R ~ 1/ζ).
+    s = np.where((z * np.conj(s)).real < 0.0, -s, s)
+    return (z - s) / 2.0
 
 
 def gaussian_density(x: np.ndarray) -> np.ndarray:
@@ -71,11 +80,12 @@ def quartic_resolvent(zeta: complex, g: float) -> complex:
     # For quartic: SD equation gives
     # ζ R = 1 + R² + g [R⁴ + 2 a² R²]  (schematically)
     #
-    # Easier: solve for the endpoint a and density directly.
-    # The eigenvalue density has support [-a, a] with
-    # ρ(x) = (1/2π)(1 + 2g x²) √(a² - x²) × (normalisation)
-    # ... but let's just compute moments from SD equations.
-    pass
+    # Not implemented as a closed-form resolvent. Use quartic_eigenvalue_density
+    # (exact density) or quartic_moments_from_sd (exact moments) instead.
+    raise NotImplementedError(
+        "quartic_resolvent is not implemented; use quartic_eigenvalue_density "
+        "or quartic_moments_from_sd for the quartic model."
+    )
 
 
 def quartic_moments_from_sd(g: float, max_power: int = 20) -> np.ndarray:
