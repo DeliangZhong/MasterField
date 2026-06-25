@@ -532,6 +532,84 @@ def bootstrap_single_matrix_qm(g, L=4, *, maximize=False, with_status=False):
     return val
 
 
+def _tm_qm_words_upto(L):
+    out, cur = [()], [()]
+    for _ in range(L):
+        cur = [w + (c,) for w in cur for c in (0, 1, 2, 3)]  # X̃,Ỹ,P̃_X,P̃_Y
+        out += cur
+    return out
+
+
+def bootstrap_two_matrix_qm(m, lam, L=4, *, maximize=False, with_status=False):
+    """Certified bound on E/N² for HHK Eq 17 H=Tr(P_X²+P_Y²+m²(X²+Y²)−g²[X,Y]²).
+
+    Ordered single-trace moments in {X̃,Ỹ,P̃_X,P̃_Y}; stationarity (T5) + SU(N) Gauss law
+    (T2) + Gram PSD. Minimizing the relaxation gives a certified lower bound on E/N².
+    Reuses the M5b single-matrix-QM machinery (real-embedded Hermitian Gram, _solve).
+    """
+    from matrix_master_field.tm_qm_relations import stationarity_terms
+    if L < 4:
+        raise ValueError("L>=4 required: the E/N² objective reads length-4 commutator moments "
+                         "m[[X̃,Ỹ]²]; L=4 has only length-0,2 words.")
+    if not HAS_CVXPY:
+        return (None, None, None) if with_status else None
+
+    allw = [w for w in _tm_qm_words_upto(L) if len(w) % 2 == 0]
+    var = {w: cp.Variable(complex=True) for w in allw if w != ()}
+
+    def mm(w):
+        w = tuple(w)
+        if len(w) % 2 == 1:
+            return 0.0 + 0j
+        if w == ():
+            return 1.0 + 0j
+        return var.get(w, None)
+
+    cons = []
+    # stationarity ⟨[H,Tr w]⟩=0
+    for w in _tm_qm_words_upto(max(1, L - 2)):
+        expr, ok = 0, True
+        for coeff, ww in stationarity_terms(w):
+            t = mm(ww)
+            if t is None:
+                ok = False
+                break
+            expr = expr + coeff(m, lam) * t
+        if ok and not isinstance(expr, (int, float, complex)):
+            cons += [cp.real(expr) == 0, cp.imag(expr) == 0]
+    # SU(N) Gauss law, both canonical pairs
+    for O in _tm_qm_words_upto(L - 2):
+        for pair in ((0, 2), (1, 3)):  # position-first; rel = m[XP+O]−m[PX+O]−i·m[O]=0
+            rel = [(1.0, pair + O), (-1.0, (pair[1], pair[0]) + O), (-1j, O)]
+            terms = [(c, mm(ww)) for c, ww in rel]
+            if any(t is None for _, t in terms):
+                continue
+            e = sum(c * t for c, t in terms)
+            cons += [cp.real(e) == 0, cp.imag(e) == 0]
+    # Gram PSD (complex Hermitian via real embedding), basis = words up to L//2
+    basis = _tm_qm_words_upto(L // 2)
+    A = [[None] * len(basis) for _ in basis]
+    B = [[None] * len(basis) for _ in basis]
+    for i, u in enumerate(basis):
+        for j, v in enumerate(basis):
+            e = mm(tuple(reversed(u)) + v)
+            if e is None:
+                return (None, None, None) if with_status else None
+            A[i][j], B[i][j] = cp.real(e), cp.imag(e)
+    embed = cp.bmat([[cp.bmat(A), -cp.bmat(B)], [cp.bmat(B), cp.bmat(A)]])
+    cons.append(embed >> 0)
+
+    # E/N² = m[P̃_X²]+m[P̃_Y²]+m²(m[X̃²]+m[Ỹ²]) − λ·m[[X̃,Ỹ]²]
+    comm2 = (mm((0, 1, 0, 1)) - mm((0, 1, 1, 0)) - mm((1, 0, 0, 1)) + mm((1, 0, 1, 0)))
+    energy = (mm((2, 2)) + mm((3, 3)) + m**2 * (mm((0, 0)) + mm((1, 1))) - lam * comm2)
+    obj = cp.Maximize(cp.real(energy)) if maximize else cp.Minimize(cp.real(energy))
+    prob = _solve(cp.Problem(obj, cons))
+    val = None if prob.status not in ("optimal", "optimal_inaccurate") else float(prob.value)
+    if with_status:
+        return val, _LAST_SOLVE["solver"], _LAST_SOLVE["status"]
+    return val
+
+
 if __name__ == "__main__":
     if not HAS_CVXPY:
         print("Install cvxpy to run bootstrap validation")
