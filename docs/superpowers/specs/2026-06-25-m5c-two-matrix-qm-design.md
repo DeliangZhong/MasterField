@@ -1,7 +1,8 @@
 # M5c — Two-matrix quantum mechanics as a certified SDP ↔ master-field sandwich
 
 **Date:** 2026-06-25  **Status:** design (scope approved in brainstorming — full sandwich
-*including* the operator master field, Gaussian baseline first; **spec under audit**)
+*including* the operator master field, Gaussian baseline first; **revised after Codex adversarial
+audit — see Revision log**)
 
 **Goal:** Construct the large-$N$ master field of the *genuinely unsolvable* two-matrix quantum
 mechanics $H=\mathrm{Tr}(P_X^2+P_Y^2+m^2(X^2+Y^2)-g^2[X,Y]^2)$ (HHK Eq 17) by squeezing the
@@ -31,26 +32,39 @@ form and HHK's bootstrap is the external reference.
 - **Symmetries:** O(2) rotation in $(X,Y)$; $\mathbb{Z}_2{\times}\mathbb{Z}_2$ — $X\to-X$ and
   $Y\to-Y$ independently (every term even in each matrix) ⟹ any word with odd total count of
   $X$/$P_X$ **or** of $Y$/$P_Y$ vanishes. (Same symmetry structure as the M3/M4 two-matrix models.)
-- **'t Hooft scaling (proposed; reconcile with HHK in T1 below):** $X=\sqrt N\,\tilde X$,
-  $P_X=\sqrt N\,\tilde P_X$ (etc.), $g^2=\lambda/N$ with $\lambda=Ng^2$ fixed. Normalized moments
-  $m[w]=(1/N)\langle\mathrm{Tr}\,w\rangle=O(1)$ for words $w$ in $\{\tilde X,\tilde Y,\tilde P_X,\tilde P_Y\}$; $m[\varnothing]=1$ (hard). Hermiticity $m[w]^*=m[\mathrm{reverse}(w)]$.
-- **Energy density (derived from the scaling):**
+- **'t Hooft scaling (PROVISIONAL — must be pinned in T1 before any SDP coefficient is frozen):**
+  $X=\sqrt N\,\tilde X$, $P_X=\sqrt N\,\tilde P_X$ (etc.), $g^2=\lambda/N$ with $\lambda=Ng^2$ fixed.
+  Normalized moments $m[w]=(1/N)\langle\mathrm{Tr}\,w\rangle=O(1)$ for words $w$ in
+  $\{\tilde X,\tilde Y,\tilde P_X,\tilde P_Y\}$; $m[\varnothing]=1$ (hard). Hermiticity
+  $m[w]^*=m[\mathrm{reverse}(w)]$. HHK's published dial is dimensionless $m^2/g^{4/3}$; the exact
+  map $(m^2/g^{4/3})\leftrightarrow(m,\lambda)$ and whether $\tilde X=X/\sqrt N$ is HHK's own
+  normalization are **not yet pinned** (T1).
+- **Energy density (PROVISIONAL normalization — form fixed, coefficients follow T1):**
   $$\frac{E}{N^2}=m[\tilde P_X^2]+m[\tilde P_Y^2]+m^2\big(m[\tilde X^2]+m[\tilde Y^2]\big)-\lambda\,m\big[[\tilde X,\tilde Y]^2\big].$$
+  *Which* moments enter and with *which signs* is fixed; the numerical normalization of each term is
+  provisional until T1 is discharged.
 - **$g{=}0$ exact anchor (derived, all $N$).** At $\lambda{=}0$, $H=H_1[X]\oplus H_1[Y]$ with
   $H_1=\mathrm{Tr}P^2+m^2\mathrm{Tr}X^2$. Each of the $N^2$ real modes is $h=p^2+m^2x^2=2(\tfrac12 p^2+\tfrac12 m^2 x^2)$, spectrum $(2n{+}1)m$, ground energy $m$; so $E_1=N^2 m$ and
   $$\boxed{E/N^2 = 2m}\ \ (=2\text{ at }m{=}1),\qquad m[\tilde X^2]=m[\tilde Y^2]=\tfrac{1}{2m},\quad m[\tilde P_X^2]=m[\tilde P_Y^2]=\tfrac{m}{2}.$$
   Every piece of the sandwich must reproduce this. (At $m{=}1$ this is two copies of the M5b
-  $g{=}0$ result $E/N^2{=}1$, $m[\tilde X^2]{=}\tfrac12$.)
+  $g{=}0$ result $E/N^2{=}1$, $m[\tilde X^2]{=}\tfrac12$.) **This anchor value is
+  convention-independent** — it is the physical ground energy $2N^2m$ of Eq 17 at $g{=}0$ divided by
+  $N^2$, so it does *not* depend on T1; only the *expression* of $E/N^2$ in normalized moments does.
 
-### Transcription / derivation obligations (discharged in `derivations/m5c-two-matrix-qm.md`)
+### Transcription / derivation obligations — TO BE discharged in `derivations/m5c-two-matrix-qm.md` (not yet written)
+These are **open deliverables, not completed work.** **Hard gate: no SDP coefficient, Gauss-law
+constant, energy normalization, or module API may be frozen in code until T1, T2, T4, T5 have each
+passed their numerical checks** (against the $g{=}0$ exact moments / the M5b 1-matrix limit) in the
+derivation file. This gate is the implementation-plan's first wave.
 - **T1 — exact large-$N$ scaling & coupling dial.** HHK quote a dimensionless control
   $m^2/g^{4/3}$ and 't Hooft $\lambda=Ng^2$. Pin their *exact* convention (whether $\tilde X=X/\sqrt N$ as above, and how $m^2/g^{4/3}$ maps to $(m,\lambda)$) from their two-matrix section before fixing the SDP's coefficients. The architecture below is scaling-convention-independent in *form*; only the numerical coefficients depend on T1.
 - **T2 — SU(N) Gauss-law constant.** Two-matrix generator $G=i([X,P_X]+[Y,P_Y])+c\,\mathbb{1}$;
   derive the normal-ordering constant $c$ (single-matrix value was $N$, HHK Eq 11) and the singlet
   descendants $\langle\mathrm{Tr}(G\,\mathcal O)\rangle=0$ (the analog of M5b's $\langle\mathrm{Tr}XP\rangle=iN^2/2$ for each canonical pair).
-- **T3 — HHK referee numbers.** Extract $E/N^2$ vs $m^2/g^{4/3}$ from HHK Fig. 3 (a *figure*, like
-  the KZ tables — extract with care; cross-check the extracted $\lambda{=}0$ point against the
-  exact $2m$). Decide in audit whether T3 is in-scope for M5c or deferred (see open question).
+- **T3 — HHK referee numbers (soft cross-check; resolved post-audit, see R3).** Extract $E/N^2$ vs
+  $m^2/g^{4/3}$ from HHK Fig. 3 (a *figure*, like the KZ tables — extract with care; cross-check the
+  extracted $\lambda{=}0$ point against the exact $2m$). In-scope as a *reported* cross-check **if
+  digitizable**; `validated` does not hinge on it.
 - **T4 — kinetic-energy = $\tfrac14$ free Fisher information.** Derive
   $m[\tilde P_X^2]+m[\tilde P_Y^2]=\tfrac14\Phi^*(\tilde X,\tilde Y)$ for the two-matrix ground
   state (see §C3); verify the 1-matrix reduction to M5b and the anchor.
@@ -98,11 +112,27 @@ the research-grade piece is attempted.
   M3/M5b.
 
 ### C2 — Gaussian master field: rigorous upper bound (the de-risking baseline)
-The free/semicircular trial state (variational covariance over $\tilde X,\tilde Y$) has a **linear**
-conjugate variable, so its free Fisher information $\Phi^*$ is **exact in closed form** ⟹
-$\langle H\rangle$ is a *genuine, rigorous* upper bound $E_{\rm hi}$. Minimizing over the covariance
-is a self-consistent Hartree/mean-field gap equation. Exact value $=2m$ at $\lambda{=}0$. This locks
-the sandwich `E_lo ≤ E/N² ≤ E_hi` independently of the research-grade C3.
+**An explicit, normalizable trial state — the bound does NOT route through the $\Phi^*$ identity**
+(that identity is itself T4; using it here would be circular). Take $|\psi_G\rangle$ = the exact
+ground state of a *trial quadratic* Hamiltonian
+$H_0=\mathrm{Tr}\big(P_X^2+P_Y^2+\Omega^2(X^2+Y^2)\big)$ ($\Omega$ = variational frequency; an
+$X{\leftrightarrow}Y$-symmetric covariance more generally). $|\psi_G\rangle$ is a genuine normalized
+state, so by the variational principle (independent of T4)
+$$E_{\rm hi}(\Omega)=\langle\psi_G|H|\psi_G\rangle\ \ge\ E_{\rm ground}\quad\text{for \emph{every} }\Omega.$$
+- **Direct Wick evaluation.** Gaussian two-point functions
+  $\langle X_{ij}X_{kl}\rangle=\tfrac{1}{2\Omega}\delta_{il}\delta_{jk}$,
+  $\langle P_{ij}P_{kl}\rangle=\tfrac{\Omega}{2}\delta_{il}\delta_{jk}$ (saturating
+  $\langle X^2\rangle\langle P^2\rangle=\tfrac14$, the imprint of $[X,P]=i$); the quartic
+  $\langle\mathrm{Tr}[X,Y]^2\rangle$ factorizes by Wick into a closed-form polynomial in $1/\Omega$
+  (leading planar contractions). $E_{\rm hi}=\min_\Omega\langle H\rangle$ is a one-parameter
+  (Hartree / Gaussian-effective-potential) minimization.
+- **Robust to T1.** C2 is a variational computation on the *bare* Eq 17, so it is independent of the
+  SDP moment-normalization; $E/N^2$ finite requires $\lambda=Ng^2$ fixed — a useful independent
+  cross-check of the T1 scaling. Anchor: $\min_\Omega N^2(\Omega+m^2/\Omega)=2mN^2$ at $\Omega=m$
+  ⟹ $E/N^2=2m$ (the true $\lambda{=}0$ ground state). **This locks `E_lo ≤ E/N² ≤ E_hi`
+  independently of the research-grade C3.**
+- The Gaussian's exact linear-conjugate $\Phi^*$ is retained only as a **cross-check of T4**, never
+  as the basis of the bound.
 
 ### C3 — Free-Fisher operator master field: the novel core (sharp estimate)
 **Kinetic energy as free Fisher information.** Proposed identity (T4):
@@ -140,7 +170,10 @@ conjugate-variable basis yields a *lower* bound on $\Phi^*$ — hence $E_{\rm MF
 upper bound **from below** as the basis grows. Therefore $E_{\rm MF}$ is the **sharp master-field
 estimate**, certified-bracketed by $[E_{\rm lo},E_{\rm hi}]$ and refereed by HHK — *not itself* the
 rigorous cap (that role is C2's). This is stated plainly, in keeping with the project's honesty bar
-(no overclaiming the operator field as a certified bound when truncation makes it one-sided).
+(no overclaiming the operator field as a certified bound when truncation makes it one-sided). It is
+reported **only** with the V6 convergence-and-residual diagnostics — *never* on bracket inclusion
+alone (cf. the M3/M4 truncation-artifact lesson, where a moment sat inside a loose island but
+*outside* the tight one).
 
 ---
 
@@ -162,8 +195,8 @@ rigorous cap (that role is C2's). This is stated plainly, in keeping with the pr
 | V2 | $\tfrac14\Phi^*\to$ M5b $\int\tfrac{\pi^2}{3}\sigma^3$ in 1-matrix limit | reduction shown; numeric on the M5b densities + semicircle $\Phi^*{=}1$ |
 | V3 | stationarity (T5) & Gauss (T2) relations | residual $\sim0$ on the $g{=}0$ exact moments before SDP use |
 | V4 | SDP brackets the truth | $E_{\rm lo}\le E/N^2$ certified; tightens with $L$; brackets HHK Fig. 3 (T3) |
-| V5 | Gaussian is a rigorous upper bound | $E_{\rm hi}\ge$ truth; $=2m$ at $\lambda{=}0$ |
-| V6 | the sandwich | $E_{\rm lo}\le E_{\rm MF}\le E_{\rm hi}$, all bracketing the anchor/HHK → `validated` |
+| V5 | Gaussian is a rigorous upper bound | explicit $\langle\psi_G(\Omega)|H|\psi_G(\Omega)\rangle$ by Wick $\ge$ truth for **all** $\Omega$; $\min_\Omega=2m$ at $\lambda{=}0$ (at $\Omega{=}m$) — **not** via the $\Phi^*$ identity |
+| V6 | the sandwich + a *converged* (not merely bracketed) $E_{\rm MF}$ | bracket inclusion $E_{\rm lo}\le E_{\rm MF}\le E_{\rm hi}$ is **necessary, not sufficient**; also require (a) $E_{\rm MF}$ monotone-convergent vs Fisher basis degree (plateau, since it rises from below); (b) conjugate-variable residuals $\sim0$ + reported Gram conditioning; (c) exact match to the $\lambda{=}0$ anchor and agreement with HHK (T3) within an explicit tolerance → `validated` |
 
 Verification medium: Python + `pytest` (limits, residuals, convergence), as M1–M5b.
 
@@ -179,10 +212,36 @@ Verification medium: Python + `pytest` (limits, residuals, convergence), as M1�
   the $g{=}0$ moments first; reuse M3/M5b solver hygiene; start at $L{=}3$ (HHK order) and grow.
 - **R3 — referee from a figure (T3).** HHK numbers live in Fig. 3. *Mitigation:* cross-check the
   extracted $\lambda{=}0$ point against the exact $2m$; use HHK's Born–Oppenheimer bounds as a sanity
-  window. **Audit decision needed:** is T3 (matching HHK at $g{>}0$) in-scope for M5c, or is the
-  in-scope referee just the $g{=}0$ anchor + the internal SDP↔Gaussian bracket?
+  window. **Resolved scope (post-audit):** the **hard** validation gate is the $g{=}0$ anchor + the
+  internal certified SDP↔Gaussian bracket + the $E_{\rm MF}$ convergence diagnostics (V6); matching
+  HHK at $g{>}0$ (T3) is an in-scope **soft cross-check** — reported with agreement tolerance *if*
+  Fig. 3 is digitizable, but `validated` does not hinge on it. (Confirm with the user if a stronger
+  HHK-matching obligation is wanted.)
 
 ## Out of scope (candidate follow-ons)
 - **BFSS/BMN** (the next milestone after M5 — multiple matrices, supersymmetry).
 - **Amortization** $\hat M(m,\lambda)$ across the coupling plane (à la M4 `AmortizedKZ`).
 - **Spectral observables** (joint density / Brown measure of the master field).
+
+---
+
+## Revision log
+
+**2026-06-25 — Codex adversarial review (`verdict: needs-attention`), three findings, all addressed:**
+1. *[high] Derivations claimed but absent; coefficients pinned before T1.* The obligations header now
+   states T1–T5 are **open deliverables, not done**, with a **hard gate** forbidding frozen SDP
+   coefficients / APIs before T1, T2, T4, T5 pass their checks. The 't Hooft scaling and the
+   normalized-moment energy density are marked **PROVISIONAL** (form fixed, normalization pending T1).
+   The $g{=}0$ anchor $E/N^2{=}2m$ is clarified as **convention-independent** (physical ground energy),
+   so it is not provisional.
+2. *[high] Gaussian cap asserted without a variational construction.* C2 rewritten around an
+   **explicit, normalizable Gaussian trial state** $|\psi_G(\Omega)\rangle$ with $\langle H\rangle$
+   computed **directly by Wick** (two-point functions, factorized quartic) — a rigorous bound by the
+   variational principle, **not** via the $\Phi^*$ identity (which is circular, since it is T4). The
+   bound is kept rigorous (not downgraded to heuristic); the $\Phi^*$ link is demoted to a T4
+   cross-check. V5 updated accordingly.
+3. *[medium] V6 could bless a biased free-Fisher estimate by loose-bracket inclusion.* V6 strengthened:
+   bracket inclusion is **necessary, not sufficient**; `validated` additionally requires monotone
+   convergence vs Fisher basis degree, conjugate-variable residuals + Gram conditioning, and explicit
+   anchor/HHK tolerances. C3's rigor note cross-references this (and the M3/M4 truncation-artifact
+   lesson). Also resolved R3/T3: HHK $g{>}0$ matching is an in-scope **soft cross-check**, not a hard gate.
