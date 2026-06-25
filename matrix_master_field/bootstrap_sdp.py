@@ -326,6 +326,120 @@ def bootstrap_two_matrix_kz(g, h, max_word_len=4, target_word=(0, 0), maximize=T
                                  mass=1.0, quartic=float(g), comm=float(h))
 
 
+# ─── M5a: single-particle anharmonic-oscillator QM bootstrap ──────────────────
+
+def _qm_anharmonic_sdp_constraints(m, E, g, K, margin=None):
+    """cvxpy constraints for H=p²+x²+g x⁴ at fixed energy E: m_0=1, odd moments 0, the
+    stationarity recursion D3 (linear in m for fixed E), and Hankel(m) ⪰ margin·I.
+
+    `m` is a cvxpy Variable of length 2K+1 (m[k]=⟨x^k⟩). With m_0=1 and the K-1
+    recursion equalities, the only free moment is m[2]=⟨x²⟩. `margin=None` ⇒ Hankel ⪰ 0;
+    a cvxpy `margin` variable enables the max-min-eigenvalue formulation (see
+    `qm_anharmonic_margin`).
+    """
+    import numpy as _np
+    cons = [m[0] == 1.0]
+    for k in range(1, 2 * K + 1, 2):
+        cons.append(m[k] == 0.0)  # parity: odd moments vanish
+    for t in range(1, 2 * K - 1, 2):  # t = 1,3,...,2K-3 ; uses m up to index 2K
+        expr = 4.0 * t * E * m[t - 1] - 4.0 * (t + 1) * m[t + 1] - 4.0 * g * (t + 2) * m[t + 3]
+        if t >= 3:
+            expr = expr + t * (t - 1) * (t - 2) * m[t - 3]
+        cons.append(expr == 0.0)
+    H = cp.bmat([[m[i + j] for j in range(K + 1)] for i in range(K + 1)])  # Hankel
+    cons.append(H >> 0 if margin is None else H - margin * _np.eye(K + 1) >> 0)
+    return cons
+
+
+def qm_anharmonic_margin(g, K, E, with_status=False):
+    """Max-min-eigenvalue margin of the Hankel matrix over the recursion-constrained
+    moments at fixed energy E: maximize t s.t. Hankel(m) ⪰ t·I. Always a BOUNDED
+    optimization (λ_min of an affine family is concave; Hankel[0,0]=m_0=1 caps it), so a
+    trusted solver returns 'optimal' reliably — unlike the bare feasibility status, which
+    flakes to SCS at the island edge. E admits a valid state iff t* ≥ 0; t* < 0 is an
+    (optimal) certificate that energy E is below the spectrum.
+    """
+    if not HAS_CVXPY:
+        return (None, None) if with_status else None
+    m = cp.Variable(2 * K + 1)
+    t = cp.Variable()
+    cons = _qm_anharmonic_sdp_constraints(m, E, g, K, margin=t)
+    prob = cp.Problem(cp.Maximize(t), cons)
+    _solve(prob)
+    ok = prob.status in ("optimal", "optimal_inaccurate")
+    tstar = float(prob.value) if ok else None
+    if with_status:
+        return tstar, (_LAST_SOLVE["solver"], _LAST_SOLVE["status"])
+    return tstar
+
+
+def qm_anharmonic_feasibility(g, K, E, with_status=False):
+    """At fixed energy E, the [min, max] of m2=⟨x²⟩ over {recursion(E,g) + Hankel ⪰ 0}.
+
+    Returns (m2_lo, m2_hi); an edge is None if that solve is not optimal. E is feasible
+    iff both are not None. With with_status, also returns ((lo_solver, lo_status),
+    (hi_solver, hi_status)) for certification.
+    """
+    if not HAS_CVXPY:
+        return (None, None, (None, None), (None, None)) if with_status else (None, None)
+
+    def _edge(maximize):
+        m = cp.Variable(2 * K + 1)
+        cons = _qm_anharmonic_sdp_constraints(m, E, g, K)
+        obj = cp.Maximize(m[2]) if maximize else cp.Minimize(m[2])
+        prob = cp.Problem(obj, cons)
+        _solve(prob)
+        ok = prob.status in ("optimal", "optimal_inaccurate")
+        val = float(prob.value) if ok else None
+        return val, (_LAST_SOLVE["solver"], _LAST_SOLVE["status"])
+
+    lo, lo_st = _edge(False)
+    hi, hi_st = _edge(True)
+    if with_status:
+        return lo, hi, lo_st, hi_st
+    return lo, hi
+
+
+def bootstrap_qm_anharmonic(g, K, e_anchor, e_low=0.0, tol=1e-5, with_status=False):
+    """Certified lower bound on the ground-state energy E0(g): the left edge of the
+    lowest feasibility island.
+
+    The feasible energies form narrow islands around the eigenvalues (they shrink to the
+    exact spectrum as K grows), so a fixed-step scan misses them. We instead ANCHOR at a
+    known-feasible energy `e_anchor` near E0 — e.g. the exact-diag E0, whose moments are
+    a genuine feasible point at every K — and bisect DOWN to the infeasible boundary,
+    which is the certified lower bound E_lo <= E0.
+
+    With with_status, returns (E_lo, solver, status) from the feasible-edge solve so the
+    caller can require a trusted, 'optimal' certificate.
+    """
+    if not HAS_CVXPY:
+        return (None, None, None) if with_status else None
+    margin_tol = 1e-7
+
+    def feasible(E):  # E admits a valid state iff the margin t* >= 0
+        t = qm_anharmonic_margin(g, K, E)
+        return t is not None and t >= -margin_tol
+
+    if not feasible(e_anchor):
+        return (None, None, None) if with_status else None  # anchor not inside an island
+    if feasible(e_low):
+        E_lo = e_low  # island extends below e_low; the bound is only <= e_low (loose)
+    else:
+        lo_E, hi_E = e_low, e_anchor  # margin<0 (infeasible), margin>=0 (feasible)
+        while hi_E - lo_E > tol:
+            mid = 0.5 * (lo_E + hi_E)
+            if feasible(mid):
+                hi_E = mid
+            else:
+                lo_E = mid
+        E_lo = hi_E  # left edge of the lowest island = lower bound on E0
+    if with_status:
+        _, st = qm_anharmonic_margin(g, K, E_lo, with_status=True)  # always 'optimal'
+        return E_lo, st[0], st[1]
+    return E_lo
+
+
 if __name__ == "__main__":
     if not HAS_CVXPY:
         print("Install cvxpy to run bootstrap validation")
