@@ -69,3 +69,36 @@ def _gauss_herm(rng, N, a):
     M = Re + 1j * Im
     H = (M + M.conj().T) / 2.0
     return np.sqrt(a) * H
+
+
+# ─── C3: free-Fisher operator master field ─────────────────────────────────────
+
+import math
+import os
+import pytest
+
+
+def test_free_fisher_reduces_to_one_matrix_semicircle():
+    # n=1 semicircular moments (variance ½): Φ*=2 ⇒ ¼Φ*=½ (the M5b kinetic anchor).
+    from matrix_master_field.qm_master_field import free_fisher_information
+
+    def semicircle_moment(word):  # word in (0,), variance v=½ semicircle: even moments = v^n C_n
+        k = len(word)
+        if k % 2 == 1:
+            return 0.0
+        n = k // 2
+        catalan = math.comb(2 * n, n) // (n + 1)
+        return (0.5 ** n) * catalan
+
+    basis = [(), (0,), (0, 0), (0, 0, 0)]
+    phi, cond = free_fisher_information(semicircle_moment, basis, n_matrices=1)
+    assert abs(0.25 * phi - 0.5) < 1e-6
+
+
+@pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
+                    reason="slow: Cuntz–Fock optimization; set MMF_SLOW=1")
+def test_fisher_master_field_anchor_lambda0():
+    from matrix_master_field.qm_master_field import fisher_master_field
+    r = fisher_master_field(1.0, 0.0, cutoff=8, degree=2, max_word_len=3, steps=1500, lr=5e-3)
+    assert abs(r["energy"] - 2.0) < 5e-2     # E/N² → 2m at λ=0
+    assert abs(r["m2"] - 0.5) < 5e-2

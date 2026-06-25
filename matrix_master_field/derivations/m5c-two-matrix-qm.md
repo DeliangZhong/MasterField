@@ -155,9 +155,9 @@ free point. **Numeric check:** `test_quarter_phi_star_reduces_to_m5b_kinetic`
 
 - **Task 2:** *(done — see C2 section below)* the nonzero-λ finite-N Wick → large-N check pinning
   the interaction coefficient `+λ/(2Ω²)` and its N-powers.
-- **Task 5 (T4 full):** the general two-matrix `Φ*(X̃,Ỹ) = bᵀG⁻¹b` from the conjugate-variable
-  relation `τ(ξ_X w)=τ⊗τ(∂_X w)` (which requires `τ` tracial), and the g=0 free-additivity check
-  `Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`.
+- **Task 5 (T4 full):** *(done — see T4 full section below)* the general two-matrix
+  `Φ*(X̃,Ỹ) = bᵀG⁻¹b` from the conjugate-variable relation `τ(ξ_X w)=τ⊗τ(∂_X w)` (which
+  requires `τ` tracial), and the g=0 free-additivity check `Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`.
 - **Task 3 (T5/T2):** the stationarity loop equations `⟨[H,Tr w]⟩=0` and the SU(N) Gauss law
   `m[(0,2)+O]−m[(2,0)+O]=i·m[O]`, each verified against the exact g=0 Gaussian moments.
   (Done — see T5 and T2 sections below.)
@@ -329,3 +329,93 @@ so `m[(0,2)] − m[(2,0)] = i = i · m[()] = i · 1`, which holds. The analogous
 ### Verification at g=0
 
 The Gauss law is a kinematic identity (it holds for any state satisfying canonical commutation, not just the ground state). At g=0 the moments are Gaussian Wick values. `gauss_terms(O)` returns the three-term combination `[(1.0, (0,2)+O), (−1.0, (2,0)+O), (−i, O)]`. `test_gauss_law_residual_zero_on_g0_moments` checks all 85 insertions O up to length 2 and finds residual `<1e-10` (verified residual <1e-10 on the g=0 Gaussian moments).
+
+---
+
+## T4 (full) — Free Fisher information of the two-matrix operator field
+
+**Implementation:** `matrix_master_field/qm_master_field.py` — `free_fisher_information`, `_phi_star`, `_free_diff_quotient_score`, `fisher_master_field`, `_tm_position_words`
+**Tests:** `matrix_master_field/tests/test_qm_master_field.py` — `test_free_fisher_reduces_to_one_matrix_semicircle` (GREEN), `test_fisher_master_field_anchor_lambda0` (GREEN with `MMF_SLOW=1`)
+
+### Conjugate-variable formula for Φ*
+
+For a tracial noncommutative probability space `(A, τ)` with a self-adjoint element `X`, the free
+score `ξ_X` is defined by the duality relation
+
+```
+τ(ξ_X · w) = τ⊗τ(∂_X w),    ∂_X w = Σ_{i: w_i=X} w_{<i} ⊗ w_{>i}
+```
+
+for all noncommutative polynomials `w`. The free Fisher information is `Φ*(X) = τ(ξ_X²)`.
+
+**Why traciality is required.** The identity `τ(ξ_X · w) = τ⊗τ(∂_X w)` is a tensor identity that
+holds only when `τ` is a trace (i.e., tracial: `τ(ab)=τ(ba)` for all `a,b`). The Cuntz vacuum
+state `ω(·) = ⟨Ω|·|Ω⟩` on the Cuntz–Fock space is NOT tracial: `ω(a_i a†_j) ≠ ω(a†_j a_i)` in
+general. Therefore, the training loss for `fisher_master_field` includes a cyclicity penalty
+`w_sym · (cyclicity + exchange + Z₂)` to push the Cuntz vacuum toward a tracial state; the
+energy is evaluated only after this penalty has been enforced.
+
+### Gram matrix and finite-basis formula
+
+Fix a finite basis of words `{w_c}`. The Gram matrix is
+
+```
+G[c, c'] = τ(w_c* w_{c'}) = τ(reverse(w_c) · w_{c'}) = moment(reverse(w_c) + w_{c'}).
+```
+
+The free difference-quotient score vector has components
+
+```
+b[c] = τ⊗τ(∂_X w_c) = Σ_{i: (w_c)_i = X} moment(w_c[:i]) · moment(w_c[i+1:]).
+```
+
+Solving `G ξ = b` gives the Gram representation of the score, and
+
+```
+Φ*(X) = bᵀ G⁻¹ b.
+```
+
+For two matrices `X̃, Ỹ`, free additivity gives `Φ*(X̃, Ỹ) = Φ*(X̃) + Φ*(Ỹ)`, computed as the
+sum of two `bᵀG⁻¹b` terms, one for each generator.
+
+### Sup-characterization and truncation lower-bound
+
+The free Fisher information admits the sup-characterization
+
+```
+Φ*(X) = sup_b { 2 τ⊗τ(∂_X b) − τ(b²) : b ∈ A tracial },
+```
+
+from which it follows that restricting the sup to a finite-dimensional subspace spanned by
+`{w_c}` yields a lower bound: truncating `basis_words` LOWERS Φ*. Therefore `¼Φ*` (from
+the finite basis) is a one-sided, from-below estimate of the kinetic energy. Larger bases give
+tighter lower bounds.
+
+### n=1 semicircle check: Φ*=2 ⇒ ¼Φ*=½
+
+For the semicircle law of variance `½` (moments `m_{2k} = (½)^k C_k` where `C_k = C(2k,k)/(k+1)`
+is the Catalan number), the free Fisher information formula gives `Φ*=2`. This is consistent with
+the density-level computation from T4 (partial): the variance-½ semicircle has density
+`σ(y) = √(2−y²)/π` on `[−√2,√2]`, and `Φ*[σ] = (4π²/3) ∫ σ³ = 2`, so `¼Φ*=½`.
+
+The test `test_free_fisher_reduces_to_one_matrix_semicircle` constructs the semicircle moments
+directly and verifies `abs(0.25 * phi - 0.5) < 1e-6` using basis `[(), (0,), (0,0), (0,0,0)]`.
+
+### g=0 free-additivity check: ¼Φ*(X̃,Ỹ)=1
+
+At `λ=0`, the two matrices `X̃, Ỹ` are free (independent semicircles of variance `½`).
+Free-additivity of Φ* gives
+
+```
+Φ*(X̃, Ỹ) = Φ*(X̃) + Φ*(Ỹ) = 2 + 2 = 4   ⟹   ¼Φ* = 1.
+```
+
+The full energy at `λ=0` is then
+
+```
+E/N² = ¼Φ* + m² (m[X̃²] + m[Ỹ²]) = 1 + 1²·(½ + ½) = 2 = 2m,
+```
+
+matching the T1 anchor. The test `test_fisher_master_field_anchor_lambda0` verifies this
+numerically with 1500 Adam steps on the Cuntz–Fock operator field (`cutoff=8, degree=2,
+max_word_len=3`), asserting `|energy − 2.0| < 5e-2` and `|m2 − 0.5| < 5e-2`.
