@@ -189,7 +189,7 @@ def solve_two_matrix(
 def solve_two_matrix_sparse(
     field, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
     steps=2000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
-    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3,
+    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3, init_params=None,
 ):
     """Sparse-Fock two-matrix solve: identical physics and fail-closed gate to
     `solve_two_matrix`, but evaluates moments with the scatter-add
@@ -198,6 +198,16 @@ def solve_two_matrix_sparse(
 
     `field` is a `sparse_fock.SparseMonomialField`. Returns the same dict shape as
     `solve_two_matrix` (with `params`, `sd_loss`, `validated`, `validation`, `field`).
+
+    `init_params` warm-starts the optimization (default: the exact g=0 free field).
+    Because the ansatz coefficients have the same shape (n, n_monomials) at every
+    cutoff — n_monomials depends only on `degree` — the converged params of a LOWER
+    max_word_len solve are a valid warm start (a **max_word_len-homotopy**): you can
+    chain truncation orders and skip a fresh g-homotopy. Measured benefit is modest
+    (L-BFGS already converges from the free field in ~150 steps at dim 1023), and it
+    does NOT reduce the dominant costs at large cutoffs — see the M3 doc §5 on why
+    the high-max_word_len solve is run-bound (scatter compute) up to ~max_word_len=5
+    and XLA-compile-bound beyond, and why scan/batching is the wrong fix.
     """
     need = ((max_word_len + 3) // 2) * field.degree
     if field.cutoff < need:
@@ -219,7 +229,7 @@ def solve_two_matrix_sparse(
                     + w_sym * symmetry_losses_from_moment(moment, words))
         return loss_fn
 
-    params = field.params_for_free_field()
+    params = field.params_for_free_field() if init_params is None else jnp.asarray(init_params)
     for g in g_schedule:
         loss_fn = make_loss(g)
         params = _adam_run(loss_fn, params, steps, lr)

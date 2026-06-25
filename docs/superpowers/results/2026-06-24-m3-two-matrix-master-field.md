@@ -148,12 +148,43 @@ on moments (`test_sparse_fock.py`).
   matvec) and is the *only* way to reach dim 8191. XLA compile of the unrolled
   loss is slow at dim 8191 (~3–4 min/compile); the solve still completes.
 
+## Refinements §5 — scaling past max_word_len=5: measured, not assumed
+
+Going beyond max_word_len=5 was *profiled*, which overturned the initial guess that
+compile time was the wall. Two costs compete (dim 8191, max_word_len=5):
+
+| evaluator | XLA compile | run / grad-step |
+|---|---|---|
+| unrolled word loops (current) | 444 s | **267 ms** |
+| `vmap` + `lax.scan` (rolled) | 21 s | **3513 ms** |
+
+Rolling the loops with `scan` cuts compile **21×** but inflates **run 13×** — and a
+solve is **run-dominated** (max_word_len=5 was ~36 min run vs ~7 min compile), so
+scan makes the *total* ≈10× worse (≈5 h vs ≈30 min). Both rolled variants were
+validated bit-for-bit against the unrolled evaluator (loss Δ=0, grad Δ≈5e-14), so
+this is a pure speed verdict: **scan/batching is the wrong fix and is not
+integrated.** The optimal levers instead:
+
+- **≤ max_word_len 5 (run-bound):** keep the unrolled evaluator; cut the *step
+  count*. L-BFGS converges from the free field in ~150 steps even at dim 1023, so a
+  modest budget + the fail-closed gate suffices. `solve_two_matrix_sparse` now takes
+  `init_params` for a **max_word_len-homotopy** — chain a higher cutoff off the
+  converged lower one (same param shape, since n_monomials depends only on degree)
+  and skip a fresh g-homotopy. (Measured benefit modest at dim 1023; it does not
+  touch compile.)
+- **≥ max_word_len 6 (compile-bound):** unrolled compile grows super-linearly
+  (≈55 s → 444 s from max_word_len 4 → 5) and becomes the wall. The genuine fix is
+  **suffix-state sharing**: the loss evaluates hundreds of words sharing suffixes
+  (word_moment applies right-to-left, so words ending in the same w share their
+  initial partial state), so computing each shared suffix-state once cuts *both* the
+  op count (compile) and the compute (run). A real algorithmic optimization, left as
+  future work — scan is not a substitute.
+
 ## Remaining (sharper, future)
 
-- ~~high-accuracy conic solver~~ **done** (CLARABEL, §1); ~~sparse Fock to pass
-  max_word_len=3~~ **done** (§4, reaches max_word_len=5 / dim 8191). Going past
-  max_word_len=5 is now bounded by **XLA compile time** of the unrolled loss
-  (batching / `lax.scan` over words would help), not memory.
+- ~~high-accuracy conic solver~~ **done** (CLARABEL, §1); ~~sparse Fock past
+  max_word_len=3~~ **done** (§4, max_word_len=5 / dim 8191). Past max_word_len=5:
+  **suffix-state sharing** (§5), not scan/batching (measured worse).
 - Dense-ansatz cross-check at max_word_len=3; a proper τ-Brown measure of M̂₀+iM̂₁.
 
 ## Latent bug fixed

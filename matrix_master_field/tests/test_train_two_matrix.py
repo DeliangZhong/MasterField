@@ -110,6 +110,18 @@ def test_sparse_solve_truncation_guard():
         solve_two_matrix_sparse(field, 0.5, max_word_len=2, validate=False)
 
 
+@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+def test_sparse_solve_accepts_warm_start():
+    # init_params warm-start (the max_word_len-homotopy): seeding with the free
+    # field params reproduces the default g=0 result and passes the gate.
+    field = SparseMonomialField(2, cutoff=6, degree=3)
+    r = solve_two_matrix_sparse(field, 0.0, max_word_len=2, g_schedule=[0.0],
+                                steps=400, sdp_word_len=6,
+                                init_params=field.params_for_free_field())
+    assert r["validated"] is True
+    assert abs(float(field.word_moment(r["params"], (0, 0))) - 1.0) < 1e-6
+
+
 def test_truncation_guard_is_degree_aware():
     # The guard scales the required cutoff with ansatz degree: a degree-3 letter
     # moves the Cuntz quanta count by +/-3, so the exact-moment cutoff is
