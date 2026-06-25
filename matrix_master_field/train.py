@@ -23,8 +23,10 @@ import scipy.optimize as sopt  # noqa: E402
 from matrix_master_field.bootstrap_sdp import (  # noqa: E402
     HAS_CVXPY,
     TRUSTED_SOLVERS,
+    bootstrap_qm_anharmonic,
     bootstrap_two_matrix,
     bootstrap_two_matrix_kz,
+    qm_anharmonic_feasibility,
 )
 from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
@@ -36,6 +38,8 @@ from matrix_master_field.loss import (  # noqa: E402
     two_matrix_sd_residual,
     two_matrix_test_words,
 )
+from matrix_master_field.qm_fock import ground_state as _qm_ground_state  # noqa: E402
+from matrix_master_field.qm_fock import moment as _qm_moment  # noqa: E402
 from matrix_master_field.sparse_fock import SuffixSharedMoments  # noqa: E402
 
 
@@ -381,4 +385,61 @@ def solve_kz_sparse(
                 g, h, max_word_len=sdp_word_len, target_word=tw, maximize=mx,
                 with_status=True),
             target_word=target_word, sd_tol=sd_tol, sym_tol=sym_tol, island_tol=island_tol)
+    return result
+
+
+# ─── M5a: single-particle anharmonic-oscillator QM sandwich ───────────────────
+
+def _qm_gate(*, E_lo, E_lo_cert, m2_island, m2_island_cert, E_var, E_exact, m2_exact,
+             e_tol, m2_tol):
+    """Pure fail-closed gate for the M5a sandwich. validated=True iff a CERTIFIED SDP
+    lower bound AND ⟨x²⟩ island bracket the exact-diag answer, AND the variational upper
+    bound is consistent — together certifying the squeeze E_lo ≤ E0 ≤ E_var.
+    """
+    m2_lo, m2_hi = m2_island
+    certified = bool(E_lo_cert and m2_island_cert)
+    lower_ok = E_lo is not None and (E_lo - e_tol) <= E_exact
+    upper_ok = E_exact <= (E_var + e_tol)
+    m2_ok = (m2_lo is not None and m2_hi is not None
+             and (m2_lo - m2_tol) <= m2_exact <= (m2_hi + m2_tol))
+    validation = {
+        "E_lo": E_lo, "E_var": E_var, "E_exact": E_exact,
+        "m2_island": m2_island, "m2_exact": m2_exact,
+        "lower_ok": lower_ok, "upper_ok": upper_ok, "m2_ok": m2_ok,
+        "certified": certified,
+    }
+    return validation, bool(certified and lower_ok and upper_ok and m2_ok)
+
+
+def solve_qm_anharmonic(g, K, *, K_sdp=None, validate=True, e_tol=1e-3, m2_tol=1e-3):
+    """M5a sandwich for H=p²+x²+g x⁴: a variational upper bound (operator field on the
+    truncated oscillator Fock space) and a certified SDP lower bound, refereed by exact
+    diagonalization. Returns a result dict; `validated` is set by the fail-closed
+    `_qm_gate` (needs a trusted SDP solver). The exact-diag E0 (high-K) anchors the
+    bootstrap bisection (it is a feasible point at every K).
+    """
+    K_sdp = K_sdp if K_sdp is not None else min(K, 6)
+    E_var, omega = _qm_ground_state(K, g)
+    m2_var = _qm_moment(omega, 2)
+    E_exact, omega_x = _qm_ground_state(max(K, 80), g)  # high-K referee
+    m2_exact = _qm_moment(omega_x, 2)
+    result = {"g": g, "K": K, "K_sdp": K_sdp, "E_var": E_var, "m2_var": m2_var,
+              "E_exact": E_exact, "m2_exact": m2_exact}
+    if validate:
+        E_lo = E_lo_cert = None
+        m2_island = (None, None)
+        m2_cert = False
+        if HAS_CVXPY:
+            E_lo, lo_solver, lo_status = bootstrap_qm_anharmonic(
+                g, K_sdp, E_exact, with_status=True)
+            E_lo_cert = lo_status == "optimal" and lo_solver in TRUSTED_SOLVERS
+            m2_lo, m2_hi, lo_st, hi_st = qm_anharmonic_feasibility(
+                g, K_sdp, E_exact, with_status=True)
+            m2_island = (m2_lo, m2_hi)
+            m2_cert = (m2_lo is not None and m2_hi is not None
+                       and lo_st[1] == "optimal" and lo_st[0] in TRUSTED_SOLVERS
+                       and hi_st[1] == "optimal" and hi_st[0] in TRUSTED_SOLVERS)
+        result["validation"], result["validated"] = _qm_gate(
+            E_lo=E_lo, E_lo_cert=E_lo_cert, m2_island=m2_island, m2_island_cert=m2_cert,
+            E_var=E_var, E_exact=E_exact, m2_exact=m2_exact, e_tol=e_tol, m2_tol=m2_tol)
     return result
