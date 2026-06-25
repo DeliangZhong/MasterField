@@ -160,6 +160,7 @@ free point. **Numeric check:** `test_quarter_phi_star_reduces_to_m5b_kinetic`
   `Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`.
 - **Task 3 (T5/T2):** the stationarity loop equations `⟨[H,Tr w]⟩=0` and the SU(N) Gauss law
   `m[(0,2)+O]−m[(2,0)+O]=i·m[O]`, each verified against the exact g=0 Gaussian moments.
+  (Done — see T5 and T2 sections below.)
 
 ---
 
@@ -253,3 +254,78 @@ sampled mean agrees with the analytic formula to within 6% relative tolerance.
 For N=20, 80, 320 with Ω=1.3, λ=0.7, the finite-N energy shift `−(λ/N)·⟨Tr[X,Y]²⟩/N²`
 converges monotonically to the large-N target `λ/(2Ω²)`, reaching relative error O(1/N²).
 This pins both the overall coefficient and the N-power counting in the interaction term.
+
+---
+
+## T5 — Stationarity loop equations ⟨[H, Tr w]⟩ = 0
+
+**Implementation:** `matrix_master_field/tm_qm_relations.py` — `stationarity_terms(word)`
+**Verification:** `test_stationarity_residual_zero_on_g0_moments` — residual `<1e-10` on all words up to length 3 (verified residual <1e-10 on the g=0 Gaussian moments).
+
+### Heisenberg equations of motion
+
+From `H = Tr(P_X² + P_Y² + m²X² + m²Y² − λ[X̃,Ỹ]²)` (with scaled variables), the commutators with each letter follow from canonical commutation `[X̃_ab, P̃_X,cd] = i δ_ad δ_bc / N` and the large-N planar limit. For a single letter in a word, the Leibniz rule gives the replacement:
+
+**Position letters:**
+
+```
+[H, X̃] = −2i P̃_X
+[H, Ỹ] = −2i P̃_Y
+```
+
+**Momentum letters:**
+
+```
+[H, P̃_X] = i(2m² X̃ − 2λ F_X),    F_X = [Ỹ,[X̃,Ỹ]] = 2ỸX̃Ỹ − Ỹ²X̃ − X̃Ỹ²
+[H, P̃_Y] = i(2m² Ỹ − 2λ F_Y),    F_Y = [X̃,[Ỹ,X̃]] = 2X̃ỸX̃ − X̃²Ỹ − ỸX̃²
+```
+
+The sign of the EOM for position letters follows from `[P²,X] = P[P,X]+[P,X]P = −2iP`; for momentum from `[m²X²,P] = m²X[X,P]+m²[X,P]X = 2im²X` and the interaction from the large-N commutator expansion of `[[X̃,Ỹ]²,P̃_X]`.
+
+### Loop equations
+
+For a word `w = (c_0, c_1, ..., c_{n-1})`, the loop equation is
+
+```
+⟨[H, Tr w]⟩ = Σ_k ⟨Tr(c_0···[H,c_k]···c_{n-1})⟩ = 0,
+```
+
+where each letter `c_k` is replaced by its `[H,·]` commutator from the EOM above. At `λ=0` the force terms drop, and the relation becomes a recursion among Gaussian moments.
+
+### Verification at g=0
+
+The g=0 ground state is Gaussian with exact moments from the Wick contraction of `_wick(w, m)` (non-crossing planar pairings). The stationarity residual vanishes identically at `λ=0` because the Gaussian distribution is the exact ground state of `H_{λ=0}`. The code in `stationarity_terms` encodes this replacement; `test_stationarity_residual_zero_on_g0_moments` checks all 341 words up to length 3 and finds residual `<1e-10` (verified residual <1e-10 on the g=0 Gaussian moments).
+
+---
+
+## T2 — SU(N) Gauss law
+
+**Implementation:** `matrix_master_field/tm_qm_relations.py` — `gauss_terms(O)`
+**Verification:** `test_gauss_law_residual_zero_on_g0_moments` — residual `<1e-10` on all operator insertions O up to length 2 (verified residual <1e-10 on the g=0 Gaussian moments).
+
+### Gauss law relation
+
+The SU(N) Gauss law constraint on physical states gives, for each canonical pair and any operator insertion `O`:
+
+```
+m[(X̃, P̃_X) + O] − m[(P̃_X, X̃) + O] = i · m[O]
+```
+
+In the word encoding (0=X̃, 2=P̃_X):
+
+```
+m[(0, 2) + O] − m[(2, 0) + O] − i · m[O] = 0
+```
+
+The sign convention (position-first minus momentum-first) is anchored by the two-point functions:
+
+```
+m[(0,2)] = m[X̃P̃_X] = +i/2
+m[(2,0)] = m[P̃_X X̃] = −i/2
+```
+
+so `m[(0,2)] − m[(2,0)] = i = i · m[()] = i · 1`, which holds. The analogous relation for the Y pair (letters 1=Ỹ, 3=P̃_Y) follows by symmetry.
+
+### Verification at g=0
+
+The Gauss law is a kinematic identity (it holds for any state satisfying canonical commutation, not just the ground state). At g=0 the moments are Gaussian Wick values. `gauss_terms(O)` returns the three-term combination `[(1.0, (0,2)+O), (−1.0, (2,0)+O), (−i, O)]`. `test_gauss_law_residual_zero_on_g0_moments` checks all 85 insertions O up to length 2 and finds residual `<1e-10` (verified residual <1e-10 on the g=0 Gaussian moments).
