@@ -440,6 +440,98 @@ def bootstrap_qm_anharmonic(g, K, e_anchor, e_low=0.0, tol=1e-5, with_status=Fal
     return E_lo
 
 
+# ─── M5b: single-matrix QM bootstrap (large N) ────────────────────────────────
+
+def bootstrap_single_matrix_qm(g, L=4, *, maximize=False, with_status=False):
+    """Certified bound on E/N² for single-matrix QM H=Tr P²+Tr X²+(g/N)Tr X⁴ (HHK Eq 8).
+
+    The correct large-N bootstrap (see docs/.../2026-06-25-m5b-single-matrix-qm.md):
+    ORDERED single-trace moments m[w]=⟨(1/N)Tr w⟩ as independent variables (NOT reduced by
+    any c-number commutator — the matrix [X,P] is NOT iN·𝟙), constrained by
+      • m[()]=1; hermiticity m[w]*=m[rev w]; time-reversal reality (m[w] real if #P̃ even,
+        imaginary if odd);
+      • stationarity ⟨[H,Tr w]⟩=0 (EOM [H,X̃]=−2iP̃, [H,P̃]=i(2X̃+4gX̃³); ordered);
+      • SU(N) Gauss law ⟨Tr([X,P]O)⟩=iN⟨Tr O⟩ ⟹ m[(0,1)+O]−m[(1,0)+O]=i·m[O];
+      • Gram positivity (complex Hermitian, real-embedded).
+    `min` E/N² is the certified LOWER bound (the collective field gives the upper bound).
+    `E/N² = m[(1,1)] + m[(0,0)] + g·m[(0,0,0,0)]`. Returns the bound (or (val,solver,status)).
+    """
+    if not HAS_CVXPY:
+        return (None, None, None) if with_status else None
+    from itertools import product as _ip
+
+    def words_upto(n):
+        o = [()]
+        for k in range(1, n + 1):
+            o += [tuple(c) for c in _ip((0, 1), repeat=k)]
+        return o
+
+    allw = [w for w in words_upto(L) if len(w) % 2 == 0]
+    var = {w: cp.Variable(complex=True) for w in allw if w != ()}
+
+    def m(w):
+        if len(w) % 2 == 1:
+            return 0
+        if w == ():
+            return 1.0 + 0j
+        return var.get(w, None)
+
+    cons = []
+    for w in allw:
+        if w == ():
+            continue
+        mw = m(w)
+        cons.append(cp.imag(mw) == 0 if sum(w) % 2 == 0 else cp.real(mw) == 0)  # reality
+        mr = m(tuple(reversed(w)))
+        if mr is not None:
+            cons.append(mw == cp.conj(mr))  # hermiticity
+    # stationarity ⟨[H, Tr w]⟩=0
+    for w in words_upto(max(1, L - 2)):
+        expr, ok = 0, True
+        for k, letter in enumerate(w):
+            if letter == 0:
+                t = m(w[:k] + (1,) + w[k + 1:])
+                if t is None:
+                    ok = False; break
+                expr = expr + (-2j) * t
+            else:
+                t1 = m(w[:k] + (0,) + w[k + 1:])
+                t3 = m(w[:k] + (0, 0, 0) + w[k + 1:])
+                if t1 is None or t3 is None:
+                    ok = False; break
+                expr = expr + (2j) * t1 + (4j * g) * t3
+        if ok and not isinstance(expr, (int, float, complex)):
+            cons += [cp.real(expr) == 0, cp.imag(expr) == 0]
+    # SU(N) Gauss law: m[(0,1)+O] - m[(1,0)+O] = i m[O]
+    for O in words_upto(L - 2):
+        a, b, c = m((0, 1) + O), m((1, 0) + O), m(O)
+        if a is None or b is None or c is None:
+            continue
+        cons += [cp.real(a - b - 1j * c) == 0, cp.imag(a - b - 1j * c) == 0]
+    # Gram PSD (complex Hermitian via real embedding)
+    basis = words_upto(L // 2)
+    nb = len(basis)
+    A = [[None] * nb for _ in range(nb)]
+    B = [[None] * nb for _ in range(nb)]
+    for i, u in enumerate(basis):
+        for j, v in enumerate(basis):
+            e = m(tuple(reversed(u)) + v)
+            if e is None:
+                return (None, None, None) if with_status else None
+            A[i][j] = cp.real(e)
+            B[i][j] = cp.imag(e)
+    embed = cp.bmat([[cp.bmat(A), -cp.bmat(B)], [cp.bmat(B), cp.bmat(A)]])
+    cons.append(embed >> 0)
+    energy = cp.real(m((1, 1)) + m((0, 0)) + g * m((0, 0, 0, 0)))
+    prob = cp.Problem(cp.Maximize(energy) if maximize else cp.Minimize(energy), cons)
+    _solve(prob)
+    ok = prob.status in ("optimal", "optimal_inaccurate")
+    val = float(prob.value) if ok else None
+    if with_status:
+        return val, _LAST_SOLVE["solver"], _LAST_SOLVE["status"]
+    return val
+
+
 if __name__ == "__main__":
     if not HAS_CVXPY:
         print("Install cvxpy to run bootstrap validation")

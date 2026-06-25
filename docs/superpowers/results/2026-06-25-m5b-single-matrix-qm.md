@@ -1,4 +1,4 @@
-# M5b result — single-matrix QM master field (collective field + free fermions), with the certified SDP as a documented open item
+# M5b result — single-matrix QM as a certified bootstrap / collective-field sandwich
 
 **Date:** 2026-06-25. **Model** (Han–Hartnoll–Kruthoff, arXiv:2004.10212, Eq 8):
 $$H = \mathrm{Tr}\,P^2 + \mathrm{Tr}\,X^2 + \tfrac{g}{N}\,\mathrm{Tr}\,X^4,\qquad \hbar=1,\quad [X_{ij},P_{kl}]=i\,\delta_{il}\delta_{jk},\quad g\ \text{fixed at large }N.$$
@@ -40,30 +40,40 @@ agreeing** (`matrix_master_field/qm_collective.py`):
 Tests: `tests/test_qm_collective.py` (collective matches the table; `g=0` exact; free-fermion
 converges; variational upper bound). All green.
 
-## The certified SDP lower bound — documented open item (the honest finding)
+## The certified SDP lower bound — delivered (the correct matrix-QM bootstrap)
 
-The planned sandwich's lower half — a certified SDP bound on `E/N²` — is **not delivered**. The
-attempt and its instructive failure are recorded here so the next session starts informed:
+The sandwich's lower half is now built and certified. Getting it right required a correction of a
+subtle error, recorded here because it is the crux of the matrix-QM bootstrap:
 
-- A bootstrap over **single-trace** moments of words in `X̃,P̃` with the canonical algebra
-  `[X̃,P̃]=i𝟙` is, rigorously, **a non-tracial state on the one-pair Heisenberg algebra — i.e. one
-  quantum particle**. Empirically it converged (MOSEK-certified) to the M5a single-particle
-  `E₀(g)` (e.g. `1.3923` at g=1, `1.6075` at g=2), **not** the matrix `E/N²` (`1.302`, `1.480`).
-- The matrix model is N fermions at coupling `g/N`; distinguishing it requires genuine large-N
-  **multi-trace / factorization** structure (HHK's Eq 14 carries `⟨Tr⟩⟨Tr⟩` terms). The
-  single-trace shortcut discards it — the spec's original instinct (factorization needed) was right.
-- Deriving the corrected loop equations by hand proved **error-prone**: three cross-checks
-  disagreed — a naive Wick script gave `m[X̃P̃X̃P̃]=0`, the exact operator identity
-  `X̃P̃X̃P̃=X̃²P̃²−iX̃P̃` forces `=1/2`, and the loop equation then implied `t₄=3/2` vs the true
-  `0.5`. The gap is Weyl-ordering / O(N) bookkeeping. **No bootstrap was committed** on this basis.
+- **The trap:** treating `[X̃,P̃]=i𝟙` as a c-number and *reducing* moments makes the single-trace
+  state a non-tracial state on the one-pair Heisenberg algebra — **one quantum particle**. It
+  converged (MOSEK-certified) to the M5a single-particle `E₀(g)` (`1.3924` at g=1), not the matrix
+  `E/N²`. **The matrix commutator `[X,P]` is NOT `iN·𝟙`** — it has operator parts (verified on an
+  exact N=2 matrix oscillator: `Tr(XPXP)=0.5`, while `iN·𝟙` would force `3.5`).
+- **The fix:** keep **ordered** single-trace moments `m[w]=⟨(1/N)Tr w⟩` as *independent variables*
+  (no commutator reduction), constrained by: hermiticity + time-reversal reality; the **stationarity
+  loop equations** `⟨[H,Tr w]⟩=0` (verified exactly on the N=2 ground state, e.g.
+  `⟨Tr PX²P⟩+⟨Tr XPXP⟩+⟨Tr X²P²⟩=⟨Tr X⁴⟩`); the **SU(N) Gauss law**
+  `⟨Tr([X,P]O)⟩=iN⟨Tr O⟩ ⟹ m[(0,1)+O]−m[(1,0)+O]=i·m[O]` (also verified on N=2) — this forces the
+  phase-space area that prevents the trivial `E/N²≥0` collapse; and **Gram positivity**.
+- Code: `bootstrap_sdp.bootstrap_single_matrix_qm(g, L)`; sandwich + fail-closed gate in
+  `train.solve_single_matrix_qm` / `_sm_qm_gate`.
 
-**Path for the fresh session:** derive the multi-trace matrix-QM loop equations with full Moyal /
-large-N care, and verify *every* relation against (a) the `g=0` Gaussian matrix-oscillator moments
-(exact by Wick, done carefully) and (b) the free-fermion phase-space droplet Weyl moments
-`∫∫_{q²+y²+gy⁴≤μ} y^a q^b dy dq/(2π)`, **before** trusting the SDP. Obtaining HHK's precise Eq 9–15
-(read directly, not via the lossy fetch) would de-risk this.
+**Certified lower bound (`min E/N²`), bracketing the exact value and well below the single-particle
+collapse (MOSEK-certified, L=4):**
+
+| g | `E_lo` (SDP, certified) | `E/N²` (exact) | single-particle `E₀` (collapse signature) |
+|---|---|---|---|
+| 0.0 | **1.0000** | 1.00000 | 1.0 |
+| 0.5 | 1.1034 | 1.18049 | 1.24185 |
+| 1.0 | 1.1823 | 1.30190 | 1.39235 |
+
+The full sandwich `E_lo ≤ E/N² ≤ E_var` holds with the collective variational `E_var` (≈ exact);
+`validated=True` (`test_train_single_matrix_qm.py`). The lower bound is valid and certified;
+tightening it (more constraints / the cyclicity-via-Gauss relations / higher L) is a future
+refinement. Tests: `test_bootstrap_single_matrix_qm.py`, `test_train_single_matrix_qm.py`.
 
 ## Status
-M5b delivers the **validated large-N master field** (collective + free-fermion, the operator-field
-half of the sandwich). The certified SDP lower bound is a clean, well-scoped open item. Next:
-either close the SDP (fresh session) or proceed to **M5c** (two-matrix QM, the unsolvable target).
+M5b is **complete**: the large-N master field (collective + free-fermion) **and** the certified
+matrix-QM SDP lower bound, assembled into a validated sandwich. Next: **M5c** (two-matrix QM, the
+unsolvable target).

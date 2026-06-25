@@ -24,9 +24,14 @@ from matrix_master_field.bootstrap_sdp import (  # noqa: E402
     HAS_CVXPY,
     TRUSTED_SOLVERS,
     bootstrap_qm_anharmonic,
+    bootstrap_single_matrix_qm,
     bootstrap_two_matrix,
     bootstrap_two_matrix_kz,
     qm_anharmonic_feasibility,
+)
+from matrix_master_field.qm_collective import (  # noqa: E402
+    collective_master_field,
+    collective_variational,
 )
 from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
@@ -442,4 +447,43 @@ def solve_qm_anharmonic(g, K, *, K_sdp=None, validate=True, e_tol=1e-3, m2_tol=1
         result["validation"], result["validated"] = _qm_gate(
             E_lo=E_lo, E_lo_cert=E_lo_cert, m2_island=m2_island, m2_island_cert=m2_cert,
             E_var=E_var, E_exact=E_exact, m2_exact=m2_exact, e_tol=e_tol, m2_tol=m2_tol)
+    return result
+
+
+# ─── M5b: single-matrix QM sandwich (large N) ─────────────────────────────────
+
+def _sm_qm_gate(*, E_lo, E_lo_cert, E_var, E_exact, e_tol):
+    """Pure fail-closed gate for the M5b sandwich: validated iff a CERTIFIED matrix-QM SDP
+    lower bound and the collective variational upper bound bracket the exact free-fermion
+    E/N² — certifying E_lo ≤ E/N² ≤ E_var.
+    """
+    lower_ok = E_lo is not None and (E_lo - e_tol) <= E_exact
+    upper_ok = E_var is not None and E_exact <= (E_var + e_tol)
+    certified = bool(E_lo_cert)
+    validation = {"E_lo": E_lo, "E_var": E_var, "E_exact": E_exact,
+                  "lower_ok": lower_ok, "upper_ok": upper_ok, "certified": certified}
+    return validation, bool(certified and lower_ok and upper_ok)
+
+
+def solve_single_matrix_qm(g, *, L=4, validate=True, e_tol=1e-3):
+    """M5b sandwich for H=Tr P²+Tr X²+(g/N)Tr X⁴: a certified matrix-QM SDP lower bound
+    (`bootstrap_single_matrix_qm`) and the collective-field variational upper bound
+    (`collective_variational`), refereed by the exact free-fermion E/N²
+    (`collective_master_field`). Returns a result dict; `validated` is set by the
+    fail-closed `_sm_qm_gate` (needs a trusted SDP solver).
+    """
+    mf = collective_master_field(g)
+    E_exact = mf["energy"]
+    E_var = collective_variational(g)["energy"]
+    result = {"g": g, "L": L, "E_exact": E_exact, "E_var": E_var,
+              "m2": mf["m2"], "m4": mf["m4"]}
+    if validate:
+        E_lo = E_lo_cert = None
+        if HAS_CVXPY:
+            E_lo, solver, status = bootstrap_single_matrix_qm(
+                g, L, maximize=False, with_status=True)
+            E_lo_cert = status == "optimal" and solver in TRUSTED_SOLVERS
+        result["E_lo"] = E_lo
+        result["validation"], result["validated"] = _sm_qm_gate(
+            E_lo=E_lo, E_lo_cert=E_lo_cert, E_var=E_var, E_exact=E_exact, e_tol=e_tol)
     return result
