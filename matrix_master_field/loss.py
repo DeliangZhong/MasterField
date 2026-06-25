@@ -182,3 +182,22 @@ def z2_loss(ops_list, words):
 def symmetry_losses(ops_list, words):
     """Sum of cyclicity + exchange + Z₂ penalties."""
     return symmetry_losses_from_moment(_dense_moment(ops_list), words)
+
+
+# ─── M5a: single-particle QM stationarity recursion ───────────────────────────
+
+def qm_anharmonic_recursion_residual(m, E, g):
+    """Stationarity recursion D3 (HHK Eq 6) for H=p²+x²+g x⁴, evaluated numerically.
+
+    m[k] = ⟨x^k⟩ with m[0]=1 and odd moments 0. Returns the residuals
+        4 t E m[t-1] + t(t-1)(t-2) m[t-3] − 4(t+1) m[t+1] − 4 g (t+2) m[t+3]
+    for t = 1, 3, …, len(m)-4 (the t with every index in range). Zero on true
+    eigenstate moments. Re-derived in derivations/m5a-anharmonic-qm.md (= HHK Eq 6).
+    """
+    res = []
+    for t in range(1, len(m) - 3, 2):
+        r = 4.0 * t * E * m[t - 1] - 4.0 * (t + 1) * m[t + 1] - 4.0 * g * (t + 2) * m[t + 3]
+        if t >= 3:
+            r += t * (t - 1) * (t - 2) * m[t - 3]
+        res.append(float(r))
+    return res
