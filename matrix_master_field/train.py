@@ -20,7 +20,11 @@ import numpy as np  # noqa: E402
 import optax  # noqa: E402
 import scipy.optimize as sopt  # noqa: E402
 
-from matrix_master_field.bootstrap_sdp import HAS_CVXPY, bootstrap_two_matrix  # noqa: E402
+from matrix_master_field.bootstrap_sdp import (  # noqa: E402
+    HAS_CVXPY,
+    TRUSTED_SOLVERS,
+    bootstrap_two_matrix,
+)
 from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
     one_matrix_sd_residual,
@@ -30,6 +34,7 @@ from matrix_master_field.loss import (  # noqa: E402
     two_matrix_sd_residual,
     two_matrix_test_words,
 )
+from matrix_master_field.sparse_fock import SuffixSharedMoments  # noqa: E402
 
 
 def _lbfgs_polish(loss_fn, params, maxiter=3000):
@@ -67,6 +72,50 @@ def _adam_run(loss_fn, params, steps, lr):
     return jax.jit(run)(params)
 
 
+def _validate_two_matrix(tr_target, sd_loss, sym_loss, *, g_target, target_word,
+                         sdp_word_len, sd_tol, sym_tol, island_tol):
+    """Fail-closed validation shared by the dense and sparse two-matrix solvers.
+
+    `validated` is True ONLY if all three hold:
+      (a) the SD residual is below `sd_tol`;
+      (b) the symmetry residual (cyclicity+exchange+Z2 — required for a TRACIAL,
+          exchange/Z2-symmetric master field) is below `sym_tol`. A low SD residual
+          with broken symmetry is not a master field, so this is gated regardless of
+          the caller's `w_sym`;
+      (c) the target moment lies inside a CERTIFIED SDP island — both edges from a
+          trusted interior-point solver (CLARABEL/MOSEK) with status 'optimal'. An
+          SCS fallback or 'optimal_inaccurate' edge is not a certificate and forces
+          validated=False even if the moment lies in that (uncertified) bracket.
+    """
+    def _cert(solver, status):
+        return status == "optimal" and (solver in TRUSTED_SOLVERS or solver == "exact")
+
+    sd_ok = sd_loss < sd_tol
+    sym_ok = sym_loss < sym_tol
+    lb = ub = in_island = None
+    (lb_solver, lb_status) = (ub_solver, ub_status) = (None, None)
+    certified = False
+    if HAS_CVXPY:
+        lb, lb_solver, lb_status = bootstrap_two_matrix(
+            g_target, max_word_len=sdp_word_len, target_word=target_word,
+            maximize=False, with_status=True)
+        ub, ub_solver, ub_status = bootstrap_two_matrix(
+            g_target, max_word_len=sdp_word_len, target_word=target_word,
+            maximize=True, with_status=True)
+        if lb is not None and ub is not None:
+            in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
+            certified = _cert(lb_solver, lb_status) and _cert(ub_solver, ub_status)
+    validation = {
+        "target_word": target_word, "target_value": tr_target,
+        "sd_ok": sd_ok, "sym_ok": sym_ok, "island": (lb, ub),
+        "in_island": in_island, "island_certified": certified,
+        "island_solver": (lb_solver, ub_solver),
+        "island_status": (lb_status, ub_status),
+    }
+    validated = bool(sd_ok and sym_ok and in_island is True and certified)
+    return validation, validated
+
+
 def solve(ansatz, v_prime, fock_ops, K, *, n_restarts=4, steps=3000, lr=1e-2, seed=0, polish=True):
     """Minimize the 1-matrix SD residual over `ansatz`; return the best run."""
     def loss_fn(params):
@@ -92,17 +141,20 @@ def solve(ansatz, v_prime, fock_ops, K, *, n_restarts=4, steps=3000, lr=1e-2, se
 def solve_two_matrix(
     ansatz, fock_ops, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
     steps=4000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
-    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3,
+    sdp_word_len=8, sd_tol=1e-4, sym_tol=1e-6, island_tol=1e-3,
 ):
     """Solve the commutator+mass two-matrix master field at coupling g_target.
 
     g-homotopy from the exact g=0 free field upward; loss = SD residual +
     w_sym·(cyclicity+exchange+Z₂).
 
-    FAILS CLOSED. The returned dict carries `validated`: True ONLY if the residual
-    is below `sd_tol` AND the target moment lies inside the rigorous
-    bootstrap_two_matrix island. A low residual alone is NOT sufficient (it can be
-    a spurious or truncation-contaminated state); callers MUST check `validated`.
+    FAILS CLOSED via `_validate_two_matrix`. The returned dict carries `validated`:
+    True ONLY if (a) the SD residual is below `sd_tol`, (b) the symmetry residual
+    (cyclicity+exchange+Z2) is below `sym_tol` — a non-tracial/asymmetric operator is
+    not a master field regardless of `w_sym`, and (c) the target moment lies inside a
+    CERTIFIED bootstrap_two_matrix island (both edges 'optimal' from a trusted
+    interior-point solver). A low residual alone is NOT sufficient; callers MUST check
+    `validated` (and may inspect `sym_ok`, `island_certified`, `island_status`).
 
     Ansatz expressiveness is decisive at g>0. A degree-2 ansatz floors the SD
     residual at ~1e-3 and parks the moment BELOW the SDP lower bound (validated
@@ -169,27 +221,17 @@ def solve_two_matrix(
 
     if validate:
         tr_target = float(word_moment(ops, target_word))
-        sd_ok = sd_loss < sd_tol
-        lb = ub = in_island = None
-        if HAS_CVXPY:
-            lb = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
-                                      target_word=target_word, maximize=False)
-            ub = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
-                                      target_word=target_word, maximize=True)
-            if lb is not None and ub is not None:
-                in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
-        result["validation"] = {
-            "target_word": target_word, "target_value": tr_target,
-            "sd_ok": sd_ok, "island": (lb, ub), "in_island": in_island,
-        }
-        result["validated"] = bool(sd_ok and in_island is True)
+        result["validation"], result["validated"] = _validate_two_matrix(
+            tr_target, sd_loss, result["sym_loss"], g_target=g_target,
+            target_word=target_word, sdp_word_len=sdp_word_len, sd_tol=sd_tol,
+            sym_tol=sym_tol, island_tol=island_tol)
     return result
 
 
 def solve_two_matrix_sparse(
     field, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
     steps=2000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
-    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3, init_params=None,
+    sdp_word_len=8, sd_tol=1e-4, sym_tol=1e-6, island_tol=1e-3, init_params=None,
 ):
     """Sparse-Fock two-matrix solve: identical physics and fail-closed gate to
     `solve_two_matrix`, but evaluates moments with the scatter-add
@@ -221,10 +263,26 @@ def solve_two_matrix_sparse(
     if g_schedule is None:
         g_schedule = [g_target * t for t in (0.2, 0.4, 0.6, 0.8, 1.0)]
 
+    # Suffix-shared moment evaluator (Codex finding 3): word_moment applies
+    # right-to-left, so words sharing a suffix share their partial state. Record the
+    # words the loss needs once — at a nonzero g if any stage is nonzero, so the
+    # commutator words are included — and build the shared-suffix trie. This is ~5×
+    # fewer scatter-adds per loss than re-running word_moment per word, and is faster
+    # to BOTH compile and run than the naive per-word path (and than vmap/scan).
+    rec_g = next((g for g in list(g_schedule) + [g_target] if g != 0), 0.0)
+    _needed = []
+
+    def _rec(w):  # record the words the loss requests (value is unused)
+        _needed.append(tuple(w))
+        return 0.0
+
+    sd_residual_from_moment(_rec, words, rec_g)
+    symmetry_losses_from_moment(_rec, words)
+    shared = SuffixSharedMoments(field, _needed)
+
     def make_loss(g):
         def loss_fn(params):
-            def moment(w):
-                return field.word_moment(params, w)
+            moment = shared.moment_fn(params)
             return (sd_residual_from_moment(moment, words, g)
                     + w_sym * symmetry_losses_from_moment(moment, words))
         return loss_fn
@@ -236,9 +294,7 @@ def solve_two_matrix_sparse(
         if polish:
             params = _lbfgs_polish(loss_fn, params)
 
-    def moment_final(w):
-        return field.word_moment(params, w)
-
+    moment_final = shared.moment_fn(params)
     sd_loss = float(sd_residual_from_moment(moment_final, words, g_target))
     result = {
         "params": params, "g": g_target, "sd_loss": sd_loss,
@@ -247,18 +303,8 @@ def solve_two_matrix_sparse(
     }
     if validate:
         tr_target = float(field.word_moment(params, target_word))
-        sd_ok = sd_loss < sd_tol
-        lb = ub = in_island = None
-        if HAS_CVXPY:
-            lb = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
-                                      target_word=target_word, maximize=False)
-            ub = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
-                                      target_word=target_word, maximize=True)
-            if lb is not None and ub is not None:
-                in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
-        result["validation"] = {
-            "target_word": target_word, "target_value": tr_target,
-            "sd_ok": sd_ok, "island": (lb, ub), "in_island": in_island,
-        }
-        result["validated"] = bool(sd_ok and in_island is True)
+        result["validation"], result["validated"] = _validate_two_matrix(
+            tr_target, sd_loss, result["sym_loss"], g_target=g_target,
+            target_word=target_word, sdp_word_len=sdp_word_len, sd_tol=sd_tol,
+            sym_tol=sym_tol, island_tol=island_tol)
     return result

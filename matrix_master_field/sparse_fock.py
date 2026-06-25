@@ -113,3 +113,50 @@ class SparseMonomialField:
             np.add.at(A, (t, s), ci[c])
             ops.append((A + A.T) / 2.0)
         return ops
+
+
+class SuffixSharedMoments:
+    """Evaluate a fixed SET of word moments at once, sharing suffix states.
+
+    `word_moment` applies operators right-to-left from |Ω⟩, so words that share a
+    SUFFIX share their initial partial state. The loss requests hundreds of words
+    that share suffixes (e.g. (a)+w, (a,b,b)+w, … all end in the test word w), so
+    the naive per-word evaluator replays those shared scatter-adds many times.
+
+    Here we build the trie of REVERSED words (a reversed-word prefix == an
+    original-word suffix) and compute each trie node's state ONCE, reusing parents.
+    Implemented UNROLLED (a Python loop, no vmap/scan): each `apply_Mi` stays
+    XLA-fused (fast run) while the node count is far below Σ word-lengths (fewer
+    ops → faster compile too). Differentiable in `params`. Build once per truncation
+    (the word set is static); only `params` varies per loss evaluation.
+    """
+
+    def __init__(self, field: "SparseMonomialField", words):
+        self.field = field
+        uniq = {tuple(w) for w in words}
+        nodes = set()
+        for w in uniq:
+            rw = w[::-1]
+            for j in range(len(rw) + 1):
+                nodes.add(rw[:j])          # every reversed-prefix is a trie node
+        order = sorted(nodes, key=len)     # () first ⇒ parents before children
+        index = {node: i for i, node in enumerate(order)}
+        self.n_nodes = len(order)
+        # parent node index and edge letter for each node (root: -1)
+        self.parent = [(-1 if node == () else index[node[:-1]]) for node in order]
+        self.letter = [(-1 if node == () else node[-1]) for node in order]
+        self.word_node = {w: index[w[::-1]] for w in uniq}  # word → its full-reversed node
+
+    def states(self, params):
+        """List of partial states, one per trie node (node i = a shared suffix)."""
+        field = self.field
+        out = [jnp.zeros(field.D, dtype=jnp.float64).at[0].set(1.0)]  # node 0 = |Ω⟩
+        for i in range(1, self.n_nodes):
+            out.append(field.apply_Mi(params[self.letter[i]], out[self.parent[i]]))
+        return out
+
+    def moment_fn(self, params):
+        """A `moment(word)->scalar` closure backed by the shared suffix states."""
+        st = self.states(params)
+        node = self.word_node
+        return lambda w: st[node[tuple(w)]][0]

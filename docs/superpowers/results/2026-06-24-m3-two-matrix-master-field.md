@@ -173,18 +173,46 @@ integrated.** The optimal levers instead:
   and skip a fresh g-homotopy. (Measured benefit modest at dim 1023; it does not
   touch compile.)
 - **≥ max_word_len 6 (compile-bound):** unrolled compile grows super-linearly
-  (≈55 s → 444 s from max_word_len 4 → 5) and becomes the wall. The genuine fix is
-  **suffix-state sharing**: the loss evaluates hundreds of words sharing suffixes
-  (word_moment applies right-to-left, so words ending in the same w share their
-  initial partial state), so computing each shared suffix-state once cuts *both* the
-  op count (compile) and the compute (run). A real algorithmic optimization, left as
-  future work — scan is not a substitute.
+  (≈55 s → 444 s from max_word_len 4 → 5). The genuine fix — now **implemented**
+  (`SuffixSharedMoments`) — is **suffix-state sharing**: word_moment applies
+  right-to-left, so words sharing a suffix share their initial partial state. We
+  build the trie of reversed words and compute each shared state once, UNROLLED so
+  every apply stays XLA-fused (*not* scan). Measured: **5–6× fewer applies** (dim
+  1023: 1218→222; dim 8191: 2850→446), bit-for-bit identical (grad Δ≈1e-13), and
+  faster on **both** axes:
+
+  | evaluator (dim 8191, max_word_len=5) | compile | run/step |
+  |---|---|---|
+  | per-word (naive sparse) | 453 s | 403 ms |
+  | `vmap`+`scan` (rejected) | 21 s | 3513 ms |
+  | **suffix-shared (now used)** | **30 s** | **44 ms** |
+
+  i.e. 15× faster compile and 9× faster run than per-word — and **80× faster run
+  than scan**. This is the win scan only pretended to be; `solve_two_matrix_sparse`
+  uses it, and `init_params` (above) further cuts the step count.
+
+## Refinements §6 — hardening the validation contract
+
+An adversarial review flagged two ways `validated=True` could certify a non-result;
+both are now closed in the shared `train._validate_two_matrix` (dense + sparse):
+
+- **Symmetry is gated.** The master field must be tracial and exchange/Z2-symmetric,
+  but the old gate checked only the SD residual and the scalar target moment. Since
+  `w_sym` is caller-controlled, a run could underweight cyclicity/exchange/Z2 and
+  still pass. `validated` now also requires `sym_loss < sym_tol` (default 1e-6),
+  reported as `sym_ok`.
+- **The island must be CERTIFIED.** `bootstrap_two_matrix(..., with_status=True)`
+  returns the solver and status of each edge. `validated` requires *both* edges to be
+  `optimal` from a trusted interior-point solver (CLARABEL/MOSEK); an SCS fallback or
+  `optimal_inaccurate` edge no longer certifies (`island_certified`, `island_solver`,
+  `island_status` are reported). With no trusted solver installed the gate cannot
+  return True.
 
 ## Remaining (sharper, future)
 
 - ~~high-accuracy conic solver~~ **done** (CLARABEL, §1); ~~sparse Fock past
-  max_word_len=3~~ **done** (§4, max_word_len=5 / dim 8191). Past max_word_len=5:
-  **suffix-state sharing** (§5), not scan/batching (measured worse).
+  max_word_len=3~~ **done** (§4); ~~suffix-state sharing~~ **done** (§5). Reaching
+  max_word_len ≥ 6 is now a matter of compute budget, not a missing algorithm.
 - Dense-ansatz cross-check at max_word_len=3; a proper τ-Brown measure of M̂₀+iM̂₁.
 
 ## Latent bug fixed

@@ -39,7 +39,18 @@ def _select_solver():
 
 
 SOLVER = _select_solver()
+TRUSTED_SOLVERS = ("MOSEK", "CLARABEL")  # interior-point; their 'optimal' status certifies a bound
 _LAST_SOLVE = {"solver": None, "status": None}  # which solver/status produced the last bound
+
+
+def has_trusted_solver():
+    """True iff a certifying interior-point solver (CLARABEL/MOSEK) is installed.
+
+    A bound is only treated as a *certified* island edge when it comes from a
+    trusted solver with status 'optimal' (not 'optimal_inaccurate', and not the SCS
+    fallback). Without one, `solve_two_matrix(_sparse)` cannot set validated=True.
+    """
+    return SOLVER in TRUSTED_SOLVERS
 
 # The two-matrix moment relaxations are degenerate (no strictly-interior point), so
 # default-CLARABEL fails on several instances (e.g. g=1, L=10). A small static
@@ -186,7 +197,8 @@ def _two_matrix_canon(w):
     return min(cands)
 
 
-def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True):
+def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True,
+                         with_status=False):
     """SDP island bound on a single-trace moment of the commutator+mass two-matrix
     model S = N·tr[½(M0²+M1²) − (g²/4)[M0,M1]²] at coupling g.
 
@@ -194,9 +206,14 @@ def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True):
     relaxing the factorized SD RHS (G[0,k]=m_k, G⪰0 ⇒ G⪰m mᵀ), commutator loop
     equations, with cyclicity/exchange/Z2×Z2 baked into the canonicalization.
     Returns min or max of the target moment (the island edge), or None.
+
+    If `with_status=True`, returns `(value, solver, status)` so a caller can tell a
+    certified interior-point bound (trusted solver, status 'optimal') from an SCS
+    fallback / 'optimal_inaccurate' estimate. Parity-forbidden moments are exactly 0
+    by symmetry (reported as solver='exact').
     """
     if not HAS_CVXPY:
-        return None
+        return (None, None, None) if with_status else None
     from itertools import product as iproduct
 
     canon = _two_matrix_canon
@@ -256,17 +273,19 @@ def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True):
 
     tc = canon(target_word)
     if tc is None:
-        return 0.0  # parity-forbidden moment is exactly 0
+        # parity-forbidden moment is exactly 0 by Z2×Z2 (certified by symmetry).
+        return (0.0, "exact", "optimal") if with_status else 0.0
     obj = cp.Maximize(M[cidx[tc]]) if maximize else cp.Minimize(M[cidx[tc]])
     problem = cp.Problem(obj, cons)
     try:
         _solve(problem)
-        if problem.status in ("optimal", "optimal_inaccurate"):
-            return float(problem.value)
-        return None
+        val = float(problem.value) if problem.status in ("optimal", "optimal_inaccurate") else None
     except Exception as e:  # pragma: no cover
         print(f"two-matrix SDP error: {e}")
-        return None
+        val = None
+    if with_status:
+        return val, _LAST_SOLVE["solver"], _LAST_SOLVE["status"]
+    return val
 
 
 if __name__ == "__main__":

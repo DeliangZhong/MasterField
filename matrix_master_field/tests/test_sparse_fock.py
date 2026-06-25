@@ -5,7 +5,7 @@ import numpy as np
 
 from matrix_master_field.ansatz import MultiMonomialAnsatz
 from matrix_master_field.fock_jax import FockOps, word_moment
-from matrix_master_field.sparse_fock import SparseMonomialField
+from matrix_master_field.sparse_fock import SparseMonomialField, SuffixSharedMoments
 
 
 def _all_words(n, max_len):
@@ -57,3 +57,16 @@ def test_sparse_free_field_reproduces_free_wick():
     assert abs(float(field.word_moment(p, (0, 0, 1, 1))) - 1.0) < 1e-12
     assert abs(float(field.word_moment(p, (0, 0))) - 1.0) < 1e-12
     assert abs(float(field.word_moment(p, (1, 1, 1, 1))) - 2.0) < 1e-12
+
+
+def test_suffix_shared_moments_match_word_moment():
+    # The suffix-sharing evaluator must give exactly the per-word word_moment, and
+    # actually share (fewer trie nodes than the sum of word lengths).
+    field = SparseMonomialField(2, cutoff=6, degree=3)
+    p = 0.3 * jax.random.normal(jax.random.PRNGKey(2), (2, field.n_monomials))
+    words = _all_words(2, 5) + [(0, 1, 0, 1), (0, 0, 1, 1), (1, 1, 0, 0, 1)]
+    shared = SuffixSharedMoments(field, words)
+    m = shared.moment_fn(p)
+    for w in {tuple(w) for w in words}:
+        assert abs(float(m(w)) - float(field.word_moment(p, w))) < 1e-10
+    assert shared.n_nodes - 1 < sum(len(w) for w in {tuple(w) for w in words})

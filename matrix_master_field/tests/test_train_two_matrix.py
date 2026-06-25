@@ -4,10 +4,17 @@ import jax.numpy as jnp
 import pytest
 
 from matrix_master_field.ansatz import MultiMonomialAnsatz
-from matrix_master_field.bootstrap_sdp import HAS_CVXPY
+from matrix_master_field.bootstrap_sdp import HAS_CVXPY, has_trusted_solver
 from matrix_master_field.fock_jax import FockOps, word_moment
 from matrix_master_field.sparse_fock import SparseMonomialField
 from matrix_master_field.train import solve_two_matrix, solve_two_matrix_sparse
+
+# validated=True requires a CERTIFYING interior-point solver (CLARABEL/MOSEK): the
+# gate only trusts an island whose edges are 'optimal' from a trusted solver.
+_needs_cert = pytest.mark.skipif(
+    not (HAS_CVXPY and has_trusted_solver()),
+    reason="validated=True needs a trusted SDP solver (CLARABEL/MOSEK) installed",
+)
 
 
 def _comm_sq(ops):
@@ -26,7 +33,7 @@ def test_truncation_guard_rejects_small_fock_cutoff():
         solve_two_matrix(ans, ops, 1.0, max_word_len=3, validate=False)
 
 
-@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+@_needs_cert
 def test_g0_two_matrix_validated():
     ops = FockOps(2, 6)
     ans = MultiMonomialAnsatz(ops, degree=2)
@@ -37,6 +44,8 @@ def test_g0_two_matrix_validated():
     assert abs(float(word_moment(O, (0, 0))) - 1.0) < 1e-6   # tr M0^2 = 1 (free)
     assert abs(_comm_sq(O) - (-2.0)) < 1e-6                   # tr[M0,M1]^2 = -2
     assert r["validated"] is True                            # passes the fail-closed gate
+    assert r["validation"]["sym_ok"] is True                 # tracial/exchange/Z2 satisfied
+    assert r["validation"]["island_certified"] is True       # certified by a trusted solver
 
 
 @pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
@@ -73,7 +82,7 @@ def test_gate_rejects_low_max_word_len_truncation_artifact():
     assert r["validated"] is False                     # fail-closed catches the artifact
 
 
-@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+@_needs_cert
 @pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
                     reason="slow: dim-1023 max_word_len=3 solve (~7 min); set MMF_SLOW=1")
 def test_max_word_len3_solve_validated_in_tight_island():
@@ -86,19 +95,23 @@ def test_max_word_len3_solve_validated_in_tight_island():
                          steps=1500, sdp_word_len=8)
     assert r["sd_loss"] < 1e-8                         # exact solution of the loop equations
     assert r["validation"]["in_island"] is True
+    assert r["validation"]["sym_ok"] is True
+    assert r["validation"]["island_certified"] is True
     assert r["validated"] is True
     O = [jnp.asarray(o) for o in r["operators"]]
     assert 0.63 < float(word_moment(O, (0, 0))) < 0.73
 
 
-@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+@_needs_cert
 def test_sparse_solve_g0_validated():
-    # The sparse-Fock solver reproduces the exact g=0 free field and passes the gate.
+    # The sparse-Fock solver (with suffix-shared moments) reproduces the exact g=0
+    # free field and passes the gate.
     field = SparseMonomialField(2, cutoff=6, degree=3)
     r = solve_two_matrix_sparse(field, 0.0, max_word_len=2, g_schedule=[0.0],
                                 steps=800, sdp_word_len=6)
     assert r["validated"] is True
     assert r["sd_loss"] < 1e-9
+    assert r["validation"]["sym_ok"] is True
     assert abs(float(field.word_moment(r["params"], (0, 0))) - 1.0) < 1e-6
 
 
@@ -110,7 +123,7 @@ def test_sparse_solve_truncation_guard():
         solve_two_matrix_sparse(field, 0.5, max_word_len=2, validate=False)
 
 
-@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+@_needs_cert
 def test_sparse_solve_accepts_warm_start():
     # init_params warm-start (the max_word_len-homotopy): seeding with the free
     # field params reproduces the default g=0 result and passes the gate.
@@ -119,7 +132,27 @@ def test_sparse_solve_accepts_warm_start():
                                 steps=400, sdp_word_len=6,
                                 init_params=field.params_for_free_field())
     assert r["validated"] is True
+    assert r["validation"]["sym_ok"] is True
     assert abs(float(field.word_moment(r["params"], (0, 0))) - 1.0) < 1e-6
+
+
+@_needs_cert
+def test_validation_gate_requires_symmetry_and_certified_island():
+    # Finding 1: a low SD residual whose moment lies in the island is NOT enough —
+    # broken symmetry (sym_loss > sym_tol) must force validated=False.
+    # Finding 2: validated=True requires a CERTIFIED island (trusted solver, optimal).
+    from matrix_master_field.train import _validate_two_matrix
+    # g=0 island pins tr M0^2 = 1, so tr_target=1.0 lies inside it.
+    kw = dict(g_target=0.0, target_word=(0, 0), sdp_word_len=4,
+              sd_tol=1e-4, sym_tol=1e-6, island_tol=1e-3)
+    val_bad, ok_bad = _validate_two_matrix(1.0, 0.0, 1.0, **kw)   # symmetry broken
+    assert val_bad["sym_ok"] is False and ok_bad is False
+    val_ok, ok_ok = _validate_two_matrix(1.0, 0.0, 0.0, **kw)     # symmetric + certified
+    assert val_ok["sym_ok"] is True
+    assert val_ok["island_certified"] is True
+    assert all(s in ("CLARABEL", "MOSEK", "exact") for s in val_ok["island_solver"])
+    assert all(st == "optimal" for st in val_ok["island_status"])
+    assert ok_ok is True
 
 
 def test_truncation_guard_is_degree_aware():
