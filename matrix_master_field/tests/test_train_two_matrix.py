@@ -141,10 +141,13 @@ def test_validation_gate_requires_symmetry_and_certified_island():
     # Finding 1: a low SD residual whose moment lies in the island is NOT enough —
     # broken symmetry (sym_loss > sym_tol) must force validated=False.
     # Finding 2: validated=True requires a CERTIFIED island (trusted solver, optimal).
+    from matrix_master_field.bootstrap_sdp import bootstrap_two_matrix
     from matrix_master_field.train import _validate_two_matrix
     # g=0 island pins tr M0^2 = 1, so tr_target=1.0 lies inside it.
-    kw = dict(g_target=0.0, target_word=(0, 0), sdp_word_len=4,
-              sd_tol=1e-4, sym_tol=1e-6, island_tol=1e-3)
+    kw = dict(
+        island_fn=lambda tw, mx: bootstrap_two_matrix(
+            0.0, max_word_len=4, target_word=tw, maximize=mx, with_status=True),
+        target_word=(0, 0), sd_tol=1e-4, sym_tol=1e-6, island_tol=1e-3)
     val_bad, ok_bad = _validate_two_matrix(1.0, 0.0, 1.0, **kw)   # symmetry broken
     assert val_bad["sym_ok"] is False and ok_bad is False
     val_ok, ok_ok = _validate_two_matrix(1.0, 0.0, 0.0, **kw)     # symmetric + certified

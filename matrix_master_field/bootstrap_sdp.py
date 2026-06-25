@@ -217,20 +217,16 @@ def _two_matrix_canon(w):
     return min(cands)
 
 
-def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True,
-                         with_status=False):
-    """SDP island bound on a single-trace moment of the commutator+mass two-matrix
-    model S = N·tr[½(M0²+M1²) − (g²/4)[M0,M1]²] at coupling g.
+def _bootstrap_two_matrix(max_word_len, target_word, maximize, with_status, *,
+                          mass, quartic, comm):
+    """SDP island edge (min/max) of a single-trace moment for the general two-matrix
+    force V'_a = mass·M_a + quartic·M_a³ + comm·(M_a M_b²+M_b² M_a − 2 M_b M_a M_b).
 
     Relaxation bootstrap: moment matrix Ω⪰0 (state positivity), product matrix G
-    relaxing the factorized SD RHS (G[0,k]=m_k, G⪰0 ⇒ G⪰m mᵀ), commutator loop
-    equations, with cyclicity/exchange/Z2×Z2 baked into the canonicalization.
-    Returns min or max of the target moment (the island edge), or None.
-
-    If `with_status=True`, returns `(value, solver, status)` so a caller can tell a
-    certified interior-point bound (trusted solver, status 'optimal') from an SCS
-    fallback / 'optimal_inaccurate' estimate. Parity-forbidden moments are exactly 0
-    by symmetry (reported as solver='exact').
+    relaxing the factorized SD RHS (G[0,k]=m_k, G⪰0 ⇒ G⪰m mᵀ), loop equations, with
+    cyclicity/exchange/Z2×Z2 baked into the canonicalization. With `with_status=True`
+    returns (value, solver, status); parity-forbidden moments are exactly 0 (solver
+    'exact'). Use the `bootstrap_two_matrix` / `bootstrap_two_matrix_kz` wrappers.
     """
     if not HAS_CVXPY:
         return (None, None, None) if with_status else None
@@ -269,17 +265,21 @@ def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True,
         cons.append(G[cidx[()], k] == M[k])
     cons.append(G >> 0)
 
-    # Commutator-model loop equations: V'_a = M_a + (g²/2)(M_a M_b² + M_b² M_a − 2 M_b M_a M_b).
-    g2 = float(g) * float(g)
+    # Loop equations for V'_a = mass·M_a + quartic·M_a³
+    #   + comm·(M_a M_b² + M_b² M_a − 2 M_b M_a M_b). The quartic and commutator terms
+    #   each insert 3 letters, so test words run to max_word_len−3 (longest evaluated
+    #   moment = max_word_len, which stays inside the moment-variable set).
     test_words = [()]
     for L in range(1, max(1, max_word_len - 3) + 1):
         test_words += [tuple(c) for c in iproduct((0, 1), repeat=L)]
     for w in test_words:
         for a in (0, 1):
             b = 1 - a
-            lhs = me((a,) + w)
-            if g2 != 0.0:
-                lhs = lhs + (g2 / 2.0) * (
+            lhs = mass * me((a,) + w)
+            if quartic != 0.0:
+                lhs = lhs + quartic * me((a, a, a) + w)
+            if comm != 0.0:
+                lhs = lhs + comm * (
                     me((a, b, b) + w) + me((b, b, a) + w) - 2.0 * me((b, a, b) + w)
                 )
             rhs = 0.0
@@ -306,6 +306,24 @@ def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True,
     if with_status:
         return val, _LAST_SOLVE["solver"], _LAST_SOLVE["status"]
     return val
+
+
+def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True,
+                         with_status=False):
+    """SDP island edge for the commutator+mass model
+    S = N·tr[½(M0²+M1²) − (g²/4)[M0,M1]²]: V'_a force coeffs (mass 1, no quartic,
+    comm g²/2). See `_bootstrap_two_matrix`."""
+    return _bootstrap_two_matrix(max_word_len, target_word, maximize, with_status,
+                                 mass=1.0, quartic=0.0, comm=float(g) * float(g) / 2.0)
+
+
+def bootstrap_two_matrix_kz(g, h, max_word_len=4, target_word=(0, 0), maximize=True,
+                            with_status=False):
+    """SDP island edge for the Kazakov–Zheng model (arXiv:2108.04830 eq.6)
+    S = N·tr[½(A²+B²) + (g/4)(A⁴+B⁴) − (h/2)[A,B]²]: V'_a force coeffs
+    (mass 1, quartic g, comm h). See `_bootstrap_two_matrix`."""
+    return _bootstrap_two_matrix(max_word_len, target_word, maximize, with_status,
+                                 mass=1.0, quartic=float(g), comm=float(h))
 
 
 if __name__ == "__main__":

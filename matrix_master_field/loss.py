@@ -52,21 +52,25 @@ def two_matrix_test_words(max_len, n=2):
     return words
 
 
-def sd_residual_from_moment(moment, test_words, g):
-    """Commutator+mass SD residual from a moment callable `moment(word)->scalar`.
+def two_matrix_sd_core(moment, test_words, *, mass=1.0, quartic=0.0, comm=0.0):
+    """Planar loop-equation residual for a general two-matrix force
+        V'_a = mass·M_a + quartic·M_a³ + comm·(M_a M_b² + M_b² M_a − 2 M_b M_a M_b),
+    via τ(V'_a·w) = Σ_{k: w_k=a} τ(w_{<k})τ(w_{>k}). `moment(word)->scalar` is the
+    backend (dense `word_moment` or sparse `field.word_moment`); both differentiable.
 
-    Backend-agnostic: pass `lambda w: word_moment(ops_list, w)` (dense) or
-    `lambda w: field.word_moment(params, w)` (sparse). Both are differentiable.
+    Covers both models: commutator+mass = (mass=1, quartic=0, comm=g²/2); Kazakov–
+    Zheng = (mass=1, quartic=g, comm=h). Coefficients are Python floats (static).
     """
-    g2 = float(g) * float(g)
     total = jnp.asarray(0.0, dtype=jnp.float64)
     n_eqs = 0
     for w in test_words:
         for a in (0, 1):
             b = 1 - a
-            lhs = moment((a,) + w)
-            if g2 != 0.0:
-                lhs = lhs + (g2 / 2.0) * (
+            lhs = mass * moment((a,) + w)
+            if quartic != 0.0:
+                lhs = lhs + quartic * moment((a, a, a) + w)
+            if comm != 0.0:
+                lhs = lhs + comm * (
                     moment((a, b, b) + w)
                     + moment((b, b, a) + w)
                     - 2.0 * moment((b, a, b) + w)
@@ -79,6 +83,18 @@ def sd_residual_from_moment(moment, test_words, g):
             total = total + ((lhs - rhs) / scale) ** 2
             n_eqs += 1
     return total / max(n_eqs, 1)
+
+
+def sd_residual_from_moment(moment, test_words, g):
+    """Commutator+mass SD residual: V'_a = M_a + (g²/2)(M_a M_b²+M_b² M_a−2 M_b M_a M_b)."""
+    return two_matrix_sd_core(moment, test_words, mass=1.0, quartic=0.0,
+                              comm=float(g) * float(g) / 2.0)
+
+
+def kz_sd_residual_from_moment(moment, test_words, g, h):
+    """Kazakov–Zheng SD residual (arXiv:2108.04830 eq.6):
+    V'_a = M_a + g·M_a³ + h·(M_a M_b² + M_b² M_a − 2 M_b M_a M_b)."""
+    return two_matrix_sd_core(moment, test_words, mass=1.0, quartic=float(g), comm=float(h))
 
 
 def two_matrix_sd_residual(ops_list, test_words, g):

@@ -24,9 +24,11 @@ from matrix_master_field.bootstrap_sdp import (  # noqa: E402
     HAS_CVXPY,
     TRUSTED_SOLVERS,
     bootstrap_two_matrix,
+    bootstrap_two_matrix_kz,
 )
 from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
+    kz_sd_residual_from_moment,
     one_matrix_sd_residual,
     sd_residual_from_moment,
     symmetry_losses,
@@ -72,11 +74,13 @@ def _adam_run(loss_fn, params, steps, lr):
     return jax.jit(run)(params)
 
 
-def _validate_two_matrix(tr_target, sd_loss, sym_loss, *, g_target, target_word,
-                         sdp_word_len, sd_tol, sym_tol, island_tol):
-    """Fail-closed validation shared by the dense and sparse two-matrix solvers.
+def _validate_two_matrix(tr_target, sd_loss, sym_loss, *, island_fn, target_word,
+                         sd_tol, sym_tol, island_tol):
+    """Fail-closed validation shared by the two-matrix solvers (commutator and KZ).
 
-    `validated` is True ONLY if all three hold:
+    `island_fn(target_word, maximize) -> (value, solver, status)` returns the SDP
+    island edge for the model in question (e.g. `bootstrap_two_matrix` or
+    `bootstrap_two_matrix_kz`, partially applied). `validated` is True ONLY if:
       (a) the SD residual is below `sd_tol`;
       (b) the symmetry residual (cyclicity+exchange+Z2 — required for a TRACIAL,
           exchange/Z2-symmetric master field) is below `sym_tol`. A low SD residual
@@ -95,13 +99,9 @@ def _validate_two_matrix(tr_target, sd_loss, sym_loss, *, g_target, target_word,
     lb = ub = in_island = None
     (lb_solver, lb_status) = (ub_solver, ub_status) = (None, None)
     certified = False
-    if HAS_CVXPY:
-        lb, lb_solver, lb_status = bootstrap_two_matrix(
-            g_target, max_word_len=sdp_word_len, target_word=target_word,
-            maximize=False, with_status=True)
-        ub, ub_solver, ub_status = bootstrap_two_matrix(
-            g_target, max_word_len=sdp_word_len, target_word=target_word,
-            maximize=True, with_status=True)
+    if HAS_CVXPY and island_fn is not None:
+        lb, lb_solver, lb_status = island_fn(target_word, False)
+        ub, ub_solver, ub_status = island_fn(target_word, True)
         if lb is not None and ub is not None:
             in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
             certified = _cert(lb_solver, lb_status) and _cert(ub_solver, ub_status)
@@ -222,9 +222,11 @@ def solve_two_matrix(
     if validate:
         tr_target = float(word_moment(ops, target_word))
         result["validation"], result["validated"] = _validate_two_matrix(
-            tr_target, sd_loss, result["sym_loss"], g_target=g_target,
-            target_word=target_word, sdp_word_len=sdp_word_len, sd_tol=sd_tol,
-            sym_tol=sym_tol, island_tol=island_tol)
+            tr_target, sd_loss, result["sym_loss"],
+            island_fn=lambda tw, mx: bootstrap_two_matrix(
+                g_target, max_word_len=sdp_word_len, target_word=tw, maximize=mx,
+                with_status=True),
+            target_word=target_word, sd_tol=sd_tol, sym_tol=sym_tol, island_tol=island_tol)
     return result
 
 
@@ -304,7 +306,79 @@ def solve_two_matrix_sparse(
     if validate:
         tr_target = float(field.word_moment(params, target_word))
         result["validation"], result["validated"] = _validate_two_matrix(
-            tr_target, sd_loss, result["sym_loss"], g_target=g_target,
-            target_word=target_word, sdp_word_len=sdp_word_len, sd_tol=sd_tol,
-            sym_tol=sym_tol, island_tol=island_tol)
+            tr_target, sd_loss, result["sym_loss"],
+            island_fn=lambda tw, mx: bootstrap_two_matrix(
+                g_target, max_word_len=sdp_word_len, target_word=tw, maximize=mx,
+                with_status=True),
+            target_word=target_word, sd_tol=sd_tol, sym_tol=sym_tol, island_tol=island_tol)
+    return result
+
+
+def solve_kz_sparse(
+    field, g, h, *, max_word_len=4, w_sym=10.0, n_stages=5, steps=2000, lr=5e-3,
+    polish=True, validate=True, target_word=(0, 0), sdp_word_len=8, sd_tol=1e-4,
+    sym_tol=1e-6, island_tol=1e-3, init_params=None,
+):
+    """Kazakov–Zheng two-matrix master field (Milestone 4; arXiv:2108.04830 eq.6)
+    S = N·tr[½(A²+B²) + (g/4)(A⁴+B⁴) − (h/2)[A,B]²], force V'_a = M_a + g·M_a³ +
+    h·(M_a M_b²+M_b² M_a−2 M_b M_a M_b).
+
+    Same engine as `solve_two_matrix_sparse` (sparse Cuntz–Fock + suffix-shared
+    moments + Z2×Z2/exchange/cyclicity symmetry losses + the fail-closed gate), but
+    with the KZ force and a coupling-homotopy from the exact g=h=0 free field: stage
+    t∈{1/n_stages,…,1} ramps the couplings to (t·g, t·h). Validated against the KZ
+    SDP island `bootstrap_two_matrix_kz`. Same result-dict shape as the other solvers.
+    """
+    degree = field.degree
+    need = ((max_word_len + 3) // 2) * degree
+    if field.cutoff < need:
+        raise ValueError(
+            f"sparse Fock cutoff={field.cutoff} too small for max_word_len="
+            f"{max_word_len}, degree={degree}: need >= {need} "
+            f"(= ⌊(max_word_len+3)/2⌋·degree)."
+        )
+    words = two_matrix_test_words(max_word_len)
+    stages = [i / n_stages for i in range(1, n_stages + 1)]  # homotopy parameter t
+
+    # Suffix-shared moments: record the word set once at the full couplings (g,h) —
+    # a superset of every stage's, since the active force terms don't change with t>0.
+    _needed = []
+
+    def _rec(w):
+        _needed.append(tuple(w))
+        return 0.0
+
+    kz_sd_residual_from_moment(_rec, words, g, h)
+    symmetry_losses_from_moment(_rec, words)
+    shared = SuffixSharedMoments(field, _needed)
+
+    def make_loss(t):
+        def loss_fn(params):
+            moment = shared.moment_fn(params)
+            return (kz_sd_residual_from_moment(moment, words, t * g, t * h)
+                    + w_sym * symmetry_losses_from_moment(moment, words))
+        return loss_fn
+
+    params = field.params_for_free_field() if init_params is None else jnp.asarray(init_params)
+    for t in stages:
+        loss_fn = make_loss(t)
+        params = _adam_run(loss_fn, params, steps, lr)
+        if polish:
+            params = _lbfgs_polish(loss_fn, params)
+
+    moment_final = shared.moment_fn(params)
+    sd_loss = float(kz_sd_residual_from_moment(moment_final, words, g, h))
+    result = {
+        "params": params, "g": g, "h": h, "sd_loss": sd_loss,
+        "sym_loss": float(symmetry_losses_from_moment(moment_final, words)),
+        "field": field,
+    }
+    if validate:
+        tr_target = float(field.word_moment(params, target_word))
+        result["validation"], result["validated"] = _validate_two_matrix(
+            tr_target, sd_loss, result["sym_loss"],
+            island_fn=lambda tw, mx: bootstrap_two_matrix_kz(
+                g, h, max_word_len=sdp_word_len, target_word=tw, maximize=mx,
+                with_status=True),
+            target_word=target_word, sd_tol=sd_tol, sym_tol=sym_tol, island_tol=island_tol)
     return result
