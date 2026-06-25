@@ -11,9 +11,9 @@
 ## Global Constraints
 
 - **Spec / conventions:** `docs/superpowers/specs/2026-06-25-m5c-two-matrix-qm-design.md`. Model (HHK arXiv:2004.10212 Eq 17): `H=Tr(P_X²+P_Y²+m²(X²+Y²)−g²[X,Y]²)`, `[X_ij,P_kl]=+iδ_il δ_jk`, `ℏ=1`, confining `−g²[X,Y]²`. Symmetries: O(2) in (X,Y) + Z₂×Z₂ (odd count of any generator vanishes).
-- **'t Hooft scaling (PROVISIONAL — pinned/validated in Task 1):** `X=√N X̃`, `g²=λ/N` (`λ=Ng²` fixed). Normalized moments `m[w]=(1/N)⟨Tr w⟩=O(1)`, `m[∅]=1`. Energy density `E/N²=m[P̃_X²]+m[P̃_Y²]+m²(m[X̃²]+m[Ỹ²])−λ·m[[X̃,Ỹ]²]`. The *form* is fixed; the normalization is validated by the anchor cross-check (all three pieces must give `2m` at `λ=0`).
+- **'t Hooft scaling (PROVISIONAL — pinned/validated in Task 1):** `X=√N X̃`, `g²=λ/N` (`λ=Ng²` fixed). Normalized moments `m[w]=(1/N)⟨Tr w⟩=O(1)`, `m[∅]=1`. Energy density `E/N²=m[P̃_X²]+m[P̃_Y²]+m²(m[X̃²]+m[Ỹ²])−λ·m[[X̃,Ỹ]²]`. The *form* is fixed; the **free** normalization is pinned by the `λ=0` anchor, while the **interaction** normalization (`−λ·m[[X̃,Ỹ]²]`) is pinned **separately** by the finite-N Wick→large-N check (Task 2, `test_lambda_normalization_nonzero`) — the anchor alone cannot test the λ-term.
 - **Anchor (convention-independent, test against this not guesses):** at `λ=0`, `E/N²=2m`, `m[X̃²]=m[Ỹ²]=1/(2m)`, `m[P̃_X²]=m[P̃_Y²]=m/2`, Gauss `m[X̃P̃_X]=i/2` per pair. (Physical ground energy `2N²m` of two free matrix oscillators, `/N²`.)
-- **HARD GATE (audit-mandated):** no SDP coefficient, Gauss-law constant, energy normalization, or module API may be frozen until the derivations T1, T2, T4, T5 have passed their numerical checks (Tasks 1 and 3). Tasks 1–3 are that gate.
+- **HARD GATE (audit-mandated):** no SDP coefficient, Gauss-law constant, energy normalization, or module API may be frozen until the derivations T1, T2, T4, T5 have passed their numerical checks (Tasks 1 and 3) **and the nonzero-λ normalization check (Task 2, `test_lambda_normalization_nonzero`) has passed** — the `λ=0` anchor cannot test the interaction term. Tasks 1–3 are that gate.
 - **Free-Fisher kinetic identity (T4):** `m[P̃_X²]+m[P̃_Y²]=¼Φ*(X̃,Ỹ)`, `Φ*` = Voiculescu free Fisher information; `Φ*_X=bᵀG⁻¹b` (`G`=moment Gram, `b`=free-difference-quotient score). Reduces to M5b `∫π²σ³/3` at one matrix (semicircle variance ½ ⇒ `Φ*=2` ⇒ `¼Φ*=½`). Truncation makes `¼Φ*` a *lower* bound on KE ⇒ `E_MF` rises from below ⇒ report only with V6 diagnostics, never bracket-inclusion alone.
 - **Float64:** `jax.config.update("jax_enable_x64", True)` atop every JAX file (and every JAX test before other imports, with `# noqa: E402`).
 - **Runner:** `uv run --no-project --with jax --with optax --with scipy --with numpy --with cvxpy --with clarabel --with pytest python -m pytest <path> -v`. Slow pieces gated by `MMF_SLOW=1`; certification gated by `has_trusted_solver()`.
@@ -116,7 +116,7 @@ Expected: PASS (3 tests).
 - [ ] **Step 5: Write the derivation file**
 
 Create `matrix_master_field/derivations/m5c-two-matrix-qm.md` documenting, with the numeric checks above as the verification:
-- **T1** — the pinned model (Eq 17), the `X=√N X̃`, `λ=Ng²` scaling, the energy density, and the `m²/g^{4/3}` dial; note the normalization is validated by the anchor cross-check (Tasks 2/4/5 all give `2m` at `λ=0`).
+- **T1** — the pinned model (Eq 17), the `X=√N X̃`, `λ=Ng²` scaling, the energy density, and the `m²/g^{4/3}` dial. **Derive `−g²Tr[X,Y]²/N² = −λ·m[[X̃,Ỹ]²]` explicitly** (`X=√N X̃`, `g²=λ/N` ⇒ `Tr[X,Y]²=N³·m[[X̃,Ỹ]²]`). The `λ=0` anchor pins only the free part; the interaction coefficient + N-powers are pinned by the Task-2 finite-N `λ/(2Ω²)` check. Document the HHK `m²/g^{4/3}` coupling conversion.
 - **T4 (partial)** — `Φ*[σ]=(4π²/3)∫σ³`; the analytic semicircle check (`∫_{−2}^{2}(4−x²)^{3/2}=6π ⇒ Φ*=1`); `¼Φ*=∫π²σ³/3` (the M5b reduction); the anchor (variance ½ ⇒ `Φ*=2 ⇒ ¼Φ*=½`). (The general two-matrix `Φ*=bᵀG⁻¹b` and its `g=0` free-additivity check land in Task 5.)
 - **Anchor** — the `(2n+1)m` matrix-oscillator spectrum derivation ⇒ `E/N²=2m`, `m[X̃²]=1/(2m)`.
 
@@ -177,6 +177,21 @@ def test_gaussian_satisfies_its_cubic():
     m, lam = 1.0, 1.5
     om = gaussian_master_field(m, lam)["omega"]
     assert abs(om**3 - m**2 * om - lam) < 1e-7
+
+
+def test_lambda_normalization_nonzero():
+    # F3: the λ>0 interaction normalization — the λ=0 anchor CANNOT test it. With X=√N X̃,
+    # g²=λ/N, the energy shift −g²⟨Tr[X,Y]²⟩/N² → λ/(2Ω²) as N→∞ (pins coefficient + N-powers).
+    omega, lam = 1.3, 0.7
+    target = lam / (2.0 * omega**2)
+    prev_err = None
+    for N in (20, 80, 320):
+        shift = -(lam / N) * gaussian_comm_moment(omega, N) / N**2
+        err = abs(shift - target)
+        if prev_err is not None:
+            assert err < prev_err            # monotone convergence to λ/(2Ω²)
+        prev_err = err
+    assert prev_err < 1e-2                    # close at N=320 (err = target/N²)
 
 
 def test_wick_commutator_moment_matches_sampling():
@@ -249,7 +264,7 @@ def gaussian_master_field(m, lam):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --no-project --with numpy --with scipy --with pytest python -m pytest matrix_master_field/tests/test_qm_master_field.py -v`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Extend the derivation file**
 
@@ -273,7 +288,7 @@ The de-risk-before-SDP step (mirrors M5b Task 3). The `g=0` ground state is Gaus
 - Test: `matrix_master_field/tests/test_m5c_loop_equations.py`
 
 **Interfaces:**
-- Produces: `tm_qm_relations.g0_moment(word, m) -> complex` — exact `g=0` ordered moment of a word (tuple of ints `0=X̃,1=Ỹ,2=P̃_X,3=P̃_Y`) via Gaussian Wick; `tm_qm_relations.stationarity_terms(word) -> list[(coeff, word)]` — the linear combination encoding `⟨[H,Tr word]⟩=0` (PROVISIONAL coefficients carrying `m²`,`λ` symbolically as callables); `tm_qm_relations.gauss_terms(O) -> list[(coeff, word)]` — `m[(2,0)+O]−m[(0,2)+O]=i·m[O]`-type relation per canonical pair.
+- Produces: `tm_qm_relations.g0_moment(word, m) -> complex` — exact `g=0` ordered moment of a word (tuple of ints `0=X̃,1=Ỹ,2=P̃_X,3=P̃_Y`) via Gaussian Wick; `tm_qm_relations.stationarity_terms(word) -> list[(coeff, word)]` — the linear combination encoding `⟨[H,Tr word]⟩=0` (PROVISIONAL coefficients carrying `m²`,`λ` symbolically as callables); `tm_qm_relations.gauss_terms(O) -> list[(coeff, word)]` — `m[(0,2)+O]−m[(2,0)+O]=i·m[O]`-type relation per canonical pair (position-first minus momentum-first).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -413,10 +428,11 @@ def stationarity_terms(word):
 
 
 def gauss_terms(O):
-    """SU(N) Gauss law per canonical pair: m[(2,0)+O]−m[(0,2)+O]=i·m[O] (X), and (3,1)/(1,3) (Y).
-    Returned as one relation for the X pair (caller iterates pairs as needed)."""
+    """SU(N) Gauss law per canonical pair: m[(0,2)+O]−m[(2,0)+O]=i·m[O] (X), and (1,3)/(3,1) (Y).
+    Position-first MINUS momentum-first (matches the anchor m[X̃P̃]=+i/2, m[P̃X̃]=−i/2). One
+    relation for the X pair (caller iterates pairs as needed)."""
     O = tuple(O)
-    return [(1.0, (2, 0) + O), (-1.0, (0, 2) + O), (-1j, O)]
+    return [(1.0, (0, 2) + O), (-1.0, (2, 0) + O), (-1j, O)]
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -447,7 +463,7 @@ Build the SDP from the Task-3-verified relations. Extends `bootstrap_sdp.py`, re
 
 **Interfaces:**
 - Consumes: `tm_qm_relations.stationarity_terms`, `tm_qm_relations.gauss_terms`; `bootstrap_sdp._solve`, `_LAST_SOLVE`, `TRUSTED_SOLVERS`, `HAS_CVXPY`, `has_trusted_solver`.
-- Produces: `bootstrap_sdp.bootstrap_two_matrix_qm(m, lam, L=3, *, maximize=False, with_status=False)` → `E/N²` bound (float), or `(value, solver, status)` if `with_status`.
+- Produces: `bootstrap_sdp.bootstrap_two_matrix_qm(m, lam, L=4, *, maximize=False, with_status=False)` → `E/N²` bound (float), or `(value, solver, status)` if `with_status`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -468,7 +484,7 @@ pytestmark = pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy not installed")
 
 def test_lower_bound_anchor_lambda0():
     # λ=0 → E/N²=2m exactly; the SDP lower bound must not exceed it.
-    lb = bootstrap_two_matrix_qm(1.0, 0.0, L=3, maximize=False)
+    lb = bootstrap_two_matrix_qm(1.0, 0.0, L=4, maximize=False)
     assert lb is not None
     assert lb <= 2.0 + 1e-4
     assert lb >= 2.0 - 0.5        # not a trivial ≥0 collapse
@@ -477,7 +493,7 @@ def test_lower_bound_anchor_lambda0():
 def test_lower_bound_brackets_gaussian():
     # E_lo (SDP) ≤ E/N² ≤ E_hi (Gaussian) for λ>0.
     for lam in (0.5, 1.0):
-        lb = bootstrap_two_matrix_qm(1.0, lam, L=3, maximize=False)
+        lb = bootstrap_two_matrix_qm(1.0, lam, L=4, maximize=False)
         ub = gaussian_master_field(1.0, lam)["energy"]
         assert lb is not None
         assert lb <= ub + 1e-3
@@ -485,7 +501,7 @@ def test_lower_bound_brackets_gaussian():
 
 @pytest.mark.skipif(not has_trusted_solver(), reason="certification needs CLARABEL/MOSEK")
 def test_sdp_certified():
-    lb, solver, status = bootstrap_two_matrix_qm(1.0, 1.0, L=3, maximize=False, with_status=True)
+    lb, solver, status = bootstrap_two_matrix_qm(1.0, 1.0, L=4, maximize=False, with_status=True)
     assert lb is not None
     assert solver in ("MOSEK", "CLARABEL") and status == "optimal"
 ```
@@ -508,7 +524,7 @@ def _tm_qm_words_upto(L):
     return out
 
 
-def bootstrap_two_matrix_qm(m, lam, L=3, *, maximize=False, with_status=False):
+def bootstrap_two_matrix_qm(m, lam, L=4, *, maximize=False, with_status=False):
     """Certified bound on E/N² for HHK Eq 17 H=Tr(P_X²+P_Y²+m²(X²+Y²)−g²[X,Y]²).
 
     Ordered single-trace moments in {X̃,Ỹ,P̃_X,P̃_Y}; stationarity (T5) + SU(N) Gauss law
@@ -516,6 +532,9 @@ def bootstrap_two_matrix_qm(m, lam, L=3, *, maximize=False, with_status=False):
     Reuses the M5b single-matrix-QM machinery (real-embedded Hermitian Gram, _solve).
     """
     from matrix_master_field.tm_qm_relations import stationarity_terms
+    if L < 4:
+        raise ValueError("L>=4 required: the E/N² objective reads length-4 commutator moments "
+                         "m[[X̃,Ỹ]²]; L=4 has only length-0,2 words.")
     if not HAS_CVXPY:
         return (None, None, None) if with_status else None
 
@@ -544,7 +563,7 @@ def bootstrap_two_matrix_qm(m, lam, L=3, *, maximize=False, with_status=False):
             cons += [cp.real(expr) == 0, cp.imag(expr) == 0]
     # SU(N) Gauss law, both canonical pairs
     for O in _tm_qm_words_upto(L - 2):
-        for pair in ((2, 0), (3, 1)):
+        for pair in ((0, 2), (1, 3)):  # position-first; rel = m[XP+O]−m[PX+O]−i·m[O]=0
             rel = [(1.0, pair + O), (-1.0, (pair[1], pair[0]) + O), (-1j, O)]
             terms = [(c, mm(ww)) for c, ww in rel]
             if any(t is None for _, t in terms):
@@ -599,7 +618,7 @@ The novel core: two `X̃,Ỹ` as ML-optimized Cuntz–Fock operators; kinetic en
 
 **Interfaces:**
 - Consumes: `sparse_fock.SparseMonomialField`, `sparse_fock.SuffixSharedMoments`; `free_fisher.phi_star_density` (reduction check).
-- Produces: `qm_master_field.free_fisher_information(moment, basis_words, n_matrices) -> (phi_star, cond)` — `Φ*=Σ_a bᵀG⁻¹b`, plus the Gram condition number (V6 diagnostic). `qm_master_field.fisher_master_field(m, lam, *, cutoff, degree, max_word_len, steps, lr, seed) -> dict(energy, m2, comm2, phi_cond, params)`.
+- Produces: `qm_master_field.free_fisher_information(moment, basis_words, n_matrices) -> (phi_star, cond)` — `Φ*=Σ_a bᵀG⁻¹b`, plus the Gram condition number (V6 diagnostic). `qm_master_field.fisher_master_field(m, lam, *, cutoff, degree, max_word_len, steps, lr, w_sym, seed) -> dict(energy, m2, comm2, phi_cond, sym_loss, grad_norm, params)` (training loss includes the cyclicity/exchange/Z₂ penalty — the Cuntz vacuum is not tracial).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -687,17 +706,25 @@ def free_fisher_information(moment, basis_words, n_matrices):
 
 
 def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
-                        steps=1500, lr=5e-3, seed=0):
-    """Minimize ¼Φ*(X̃,Ỹ) + m²(m[X̃²]+m[Ỹ²]) − λ·m[[X̃,Ỹ]²] over Cuntz–Fock operators.
+                        steps=1500, lr=5e-3, w_sym=10.0, seed=0):
+    """Minimize ¼Φ*(X̃,Ỹ) + m²(m[X̃²]+m[Ỹ²]) − λ·m[[X̃,Ỹ]²] over Cuntz–Fock operators,
+    SUBJECT TO traciality + the model symmetries. **The Cuntz vacuum is NOT tracial**, so Φ*
+    (which assumes a tracial state) is only valid once cyclicity is imposed (cf. M3/M4). The
+    training loss = energy + w_sym·(cyclicity + X↔Y exchange + Z₂×Z₂); the reported `energy`
+    excludes the penalty, and `sym_loss` reports the residual symmetry violation.
 
-    Positivity automatic (tracial vacuum). Returns dict(energy, m2, comm2, phi_cond, params).
+    Positivity automatic (tracial vacuum). Returns
+    dict(energy, m2, comm2, phi_cond, sym_loss, grad_norm, params).
     """
     import optax
+    from matrix_master_field.loss import symmetry_losses_from_moment
     from matrix_master_field.sparse_fock import SparseMonomialField, SuffixSharedMoments
 
     field = SparseMonomialField(n_matrices=2, cutoff=cutoff, degree=degree)
     basis = [w for w in _tm_position_words(max_word_len)]
-    # words the loss reads: Gram (reverse(u)+v), score splits, energy words, comm2 words.
+    # Words the loss reads: Gram (reverse(u)+v), score splits, energy, comm2. The symmetry
+    # reads (rotations / X↔Y exchange / Z₂ of basis words) stay within `basis`, hence within
+    # `needed` (every basis word v appears via the u=() Gram row reverse(())+v = v).
     needed = set()
     for u in basis:
         for v in basis:
@@ -710,32 +737,38 @@ def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
         needed.add(w)
     shared = SuffixSharedMoments(field, sorted(needed, key=len))
 
-    def energy_fn(params):
-        moment = shared.moment_fn(params)
+    def energy_only(moment):
         phi = _phi_star(moment, basis, n_matrices=2)
         comm2 = (moment((0, 1, 0, 1)) - moment((0, 1, 1, 0))
                  - moment((1, 0, 0, 1)) + moment((1, 0, 1, 0)))
-        pot = m**2 * (moment((0, 0)) + moment((1, 1))) - lam * comm2
-        return 0.25 * phi + pot
+        return 0.25 * phi + m**2 * (moment((0, 0)) + moment((1, 1))) - lam * comm2
+
+    def loss_fn(params):
+        moment = shared.moment_fn(params)
+        return energy_only(moment) + w_sym * symmetry_losses_from_moment(moment, basis)
 
     params = field.params_for_free_field()
     opt = optax.adam(lr)
     state = opt.init(params)
-    val_and_grad = jax.value_and_grad(energy_fn)
+    val_and_grad = jax.value_and_grad(loss_fn)
+    g = params
     for _ in range(steps):
         _, g = val_and_grad(params)
         updates, state = opt.update(g, state)
         params = optax.apply_updates(params, updates)
+    grad_norm = float(optax.global_norm(g))  # optimizer stationarity (V6)
 
     moment = shared.moment_fn(params)
     phi, cond = free_fisher_information(moment, basis, n_matrices=2)
     comm2 = float((moment((0, 1, 0, 1)) - moment((0, 1, 1, 0))
                    - moment((1, 0, 0, 1)) + moment((1, 0, 1, 0))).real)
     return {
-        "energy": float(energy_fn(params)),
+        "energy": float(energy_only(moment).real),
         "m2": float(moment((0, 0)).real),
         "comm2": comm2,
         "phi_cond": cond,
+        "sym_loss": float(symmetry_losses_from_moment(moment, basis)),
+        "grad_norm": grad_norm,
         "params": params,
     }
 
@@ -757,7 +790,7 @@ Expected: PASS (`E/N²≈2` at λ=0).
 
 - [ ] **Step 5: Extend the derivation file**
 
-Append the T4 completion: `Φ*_X=bᵀG⁻¹b` from the conjugate-variable relation `τ(ξ_X w)=τ⊗τ(∂_X w)`; the sup-characterization (⇒ truncation lower-bounds `Φ*`); the `g=0` free-additivity check (`Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`).
+Append the T4 completion: `Φ*_X=bᵀG⁻¹b` from the conjugate-variable relation `τ(ξ_X w)=τ⊗τ(∂_X w)` (which **requires `τ` tracial** — hence cyclicity is imposed as a training penalty, since the Cuntz vacuum is not tracial); the sup-characterization (⇒ truncation lower-bounds `Φ*`); the `g=0` free-additivity check (`Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`).
 
 - [ ] **Step 6: Commit**
 
@@ -778,7 +811,7 @@ Assemble `solve_two_matrix_qm` mirroring `solve_single_matrix_qm`; gate `_tm_qm_
 
 **Interfaces:**
 - Consumes: `bootstrap_two_matrix_qm`, `gaussian_master_field`, `fisher_master_field`, `TRUSTED_SOLVERS`, `HAS_CVXPY`, `has_trusted_solver`.
-- Produces: `train.solve_two_matrix_qm(m, lam, *, L=3, cutoff=8, degree=2, max_word_len=3, validate=True, e_tol=1e-2) -> dict(m, lam, E_lo, E_hi, E_mf, m2, validation, validated)`.
+- Produces: `train.solve_two_matrix_qm(m, lam, *, L=4, cutoff=8, degree=2, max_word_len=3, validate=True, e_tol=1e-2) -> dict(m, lam, E_lo, E_hi, E_mf, m2, validation, validated)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -793,13 +826,26 @@ from matrix_master_field.train import solve_two_matrix_qm
 
 
 def test_gate_rejects_bare_bracket_inclusion():
-    # V6: bracket inclusion alone must NOT validate (no convergence/conditioning evidence).
+    # V6 + F4: bracket inclusion is necessary, NOT sufficient — every invariant must hold.
     from matrix_master_field.train import _tm_qm_gate
-    val, ok = _tm_qm_gate(E_lo=1.0, E_lo_cert=True, E_hi=3.0, E_mf=2.0,
-                          mf_converged=False, phi_cond=1e3, e_tol=1e-2)
-    assert ok is False
-    assert val["in_bracket"] is True        # inside the bracket…
-    assert val["mf_converged"] is False     # …but not converged → not validated
+
+    good = dict(E_lo=1.0, E_lo_cert=True, E_hi=3.0, E_mf=2.0, mf_converged=True,
+                phi_cond=1e3, sym_loss=1e-9, grad_norm=1e-5, e_tol=1e-2)
+    val_ok, ok = _tm_qm_gate(**good)
+    assert ok is True and val_ok["in_bracket"] is True
+
+    # deliberately fail each gate input in turn → validated must flip False
+    for key, bad in [("mf_converged", False), ("E_lo_cert", False),
+                     ("phi_cond", 1e12), ("sym_loss", 1e-3), ("grad_norm", 1.0)]:
+        _, ok_bad = _tm_qm_gate(**{**good, key: bad})
+        assert ok_bad is False, key
+
+    # inside the bracket but failing everything else → NOT validated
+    val, ok_bare = _tm_qm_gate(E_lo=1.0, E_lo_cert=False, E_hi=3.0, E_mf=2.0,
+                               mf_converged=False, phi_cond=1e12, sym_loss=1e-3,
+                               grad_norm=1.0, e_tol=1e-2)
+    assert ok_bare is False
+    assert val["in_bracket"] is True        # inside the bracket… but rejected
 
 
 @pytest.mark.skipif(not (HAS_CVXPY and has_trusted_solver()),
@@ -807,7 +853,7 @@ def test_gate_rejects_bare_bracket_inclusion():
 @pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
                     reason="slow: SDP + Cuntz–Fock optimization; set MMF_SLOW=1")
 def test_solve_two_matrix_qm_validated_lambda0():
-    r = solve_two_matrix_qm(1.0, 0.0, L=3)
+    r = solve_two_matrix_qm(1.0, 0.0, L=4)
     assert r["validated"] is True
     assert r["validation"]["E_lo"] <= 2.0 + 1e-2 <= r["E_hi"] + 1e-2   # the squeeze on 2m
 ```
@@ -822,29 +868,35 @@ Expected: FAIL with `ImportError: cannot import name 'solve_two_matrix_qm'`.
 Add to `matrix_master_field/train.py` (import `bootstrap_two_matrix_qm` from bootstrap_sdp, `gaussian_master_field`/`fisher_master_field` from qm_master_field):
 
 ```python
-def _tm_qm_gate(*, E_lo, E_lo_cert, E_hi, E_mf, mf_converged, phi_cond, e_tol,
-                cond_max=1e8):
+def _tm_qm_gate(*, E_lo, E_lo_cert, E_hi, E_mf, mf_converged, phi_cond, sym_loss,
+                grad_norm, e_tol, cond_max=1e8, sym_tol=1e-6, grad_tol=1e-3):
     """V6 (audit-strengthened): bracket inclusion is necessary, NOT sufficient.
 
-    validated ⇔ certified lower bound AND E_lo≤E_hi bracket AND E_mf in-bracket AND
-    E_mf converged vs Fisher basis degree AND Gram well-conditioned.
+    validated ⇔ certified lower bound AND E_lo≤E_hi bracket AND E_mf in-bracket AND E_mf
+    converged vs Fisher basis degree AND Gram well-conditioned AND the master field is
+    tracial+symmetric (sym_loss<sym_tol — the Cuntz vacuum is not tracial by default) AND the
+    optimizer is stationary (grad_norm<grad_tol). A non-physical Cuntz–Fock artifact that
+    merely lands in the bracket is rejected.
     """
     in_bracket = (E_lo is not None and E_hi is not None and E_mf is not None
                   and (E_lo - e_tol) <= E_mf <= (E_hi + e_tol))
     bracket_ok = E_lo is not None and E_hi is not None and E_lo <= E_hi + e_tol
     cond_ok = phi_cond is not None and phi_cond < cond_max
+    sym_ok = sym_loss is not None and sym_loss < sym_tol
+    grad_ok = grad_norm is not None and grad_norm < grad_tol
     validation = {
         "E_lo": E_lo, "E_hi": E_hi, "E_mf": E_mf,
         "in_bracket": in_bracket, "bracket_ok": bracket_ok,
         "mf_converged": bool(mf_converged), "phi_cond": phi_cond, "cond_ok": cond_ok,
+        "sym_loss": sym_loss, "sym_ok": sym_ok, "grad_norm": grad_norm, "grad_ok": grad_ok,
         "certified": bool(E_lo_cert),
     }
-    validated = bool(E_lo_cert and bracket_ok and in_bracket
-                     and mf_converged and cond_ok)
+    validated = bool(E_lo_cert and bracket_ok and in_bracket and mf_converged
+                     and cond_ok and sym_ok and grad_ok)
     return validation, validated
 
 
-def solve_two_matrix_qm(m, lam, *, L=3, cutoff=8, degree=2, max_word_len=3,
+def solve_two_matrix_qm(m, lam, *, L=4, cutoff=8, degree=2, max_word_len=3,
                         validate=True, e_tol=1e-2):
     """Sandwich for HHK Eq 17: SDP lower (C1) + Gaussian upper (C2) + free-Fisher (C3).
 
@@ -867,6 +919,7 @@ def solve_two_matrix_qm(m, lam, *, L=3, cutoff=8, degree=2, max_word_len=3,
         cert = status == "optimal" and solver in TRUSTED_SOLVERS
         val, ok = _tm_qm_gate(E_lo=E_lo, E_lo_cert=cert, E_hi=E_hi, E_mf=E_mf,
                               mf_converged=mf_converged, phi_cond=mf["phi_cond"],
+                              sym_loss=mf["sym_loss"], grad_norm=mf["grad_norm"],
                               e_tol=e_tol)
         out.update(E_lo=E_lo, validation=val, validated=ok)
     return out
@@ -926,5 +979,5 @@ git commit -m "docs(mmf): M5c result — two-matrix QM sandwich (Gaussian cap + 
 ## Notes for the implementer
 - **Order matters:** Tasks 1→3 are the hard gate (anchor, identities, verified loop/Gauss relations) and MUST pass before Task 4 (SDP) and Task 6 (gate) rely on them. Task 5 (free-Fisher) needs only Task 1's identity but is *validated* against Tasks 2+4.
 - **If a `g=0` check fails, the physics is wrong, not the test** — the `g=0` moments are exact Gaussian Wick values; fix the EOM/sign/normalization in the derivation.
-- **`L=3` is HHK's convergence order**; grow `L` (and `max_word_len` for C3) if a bracket is loose. Watch the V6 convergence/conditioning diagnostics — never report `E_mf` on bracket inclusion alone.
+- **`L=4` is the minimum** (the quartic commutator energy reads length-4 moments; M5b used L=4 for its `gX⁴` term likewise) — `bootstrap_two_matrix_qm` raises for `L<4`. Grow `L` (and `max_word_len` for C3) if a bracket is loose. Watch the V6 convergence/conditioning diagnostics — never report `E_mf` on bracket inclusion alone.
 - **Provisional normalization:** if the `λ=0` anchor (`2m`) is missed by any piece, re-pin the `X=√N X̃` / `λ=Ng²` scaling (T1) before trusting `λ>0` numbers.
