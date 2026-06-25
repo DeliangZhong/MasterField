@@ -27,6 +27,16 @@
   SDP lower bound (margin SDP `max t: Hankel⪰t·I` + anchored downward bisection from the
   exact-diag E₀) ≤ E₀ ≤ variational upper bound (λ_min of the truncated Ĥ), fail-closed in
   `train.solve_qm_anharmonic`. M5b (single matrix, HHK Eq 8) and M5c (two-matrix, Eq 17) follow.
+- **Single-matrix QM (Milestone 5b)** — HHK Eq 8: H = Tr P² + Tr X² + (g/N) Tr X⁴, g fixed at
+  large N. [X_ij,P_kl]=iδ_il δ_jk; matrix commutator **[X,P]=iN·𝟙**; 't Hooft scaling X=√N X̃;
+  normalized moments m[w]=(1/N)⟨Tr w⟩; energy density **E/N² = m[P̃²]+m[X̃²]+g·m[X̃⁴]**. SU(N)
+  Gauss law (derived): ⟨Tr XP⟩=iN²/2. Master field = rescaled eigenvalue density σ(y) (collective
+  field), E/N²[σ]=∫[π²σ³/3+(y²+g y⁴)σ]dy, ∫σ=1; analytic minimizer σ=(1/π)√(μ−y²−g y⁴). Anchors
+  (exact, free fermions = collective): g=0 → **E/N²=1, ⟨X²⟩/N²=½**; g=1 → E/N²=1.30190. Code:
+  `qm_collective.py` (collective + variational + finite-N free-fermion referee). **OPEN ITEM:** the
+  certified SDP lower bound is NOT done — a single-trace bootstrap collapses to the single particle
+  (it is a state on the one-pair Heisenberg algebra); the matrix case needs large-N multi-trace
+  factorization. See `docs/superpowers/results/2026-06-25-m5b-single-matrix-qm.md`.
 
 ## Test runner (Milestone 1)
 
