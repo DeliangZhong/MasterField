@@ -27,7 +27,13 @@ from matrix_master_field.bootstrap_sdp import (  # noqa: E402
     bootstrap_single_matrix_qm,
     bootstrap_two_matrix,
     bootstrap_two_matrix_kz,
+    bootstrap_two_matrix_qm,
+    has_trusted_solver,
     qm_anharmonic_feasibility,
+)
+from matrix_master_field.qm_master_field import (  # noqa: E402
+    fisher_master_field,
+    gaussian_master_field,
 )
 from matrix_master_field.qm_collective import (  # noqa: E402
     collective_master_field,
@@ -487,3 +493,62 @@ def solve_single_matrix_qm(g, *, L=4, validate=True, e_tol=1e-3):
         result["validation"], result["validated"] = _sm_qm_gate(
             E_lo=E_lo, E_lo_cert=E_lo_cert, E_var=E_var, E_exact=E_exact, e_tol=e_tol)
     return result
+
+
+# ─── M5c: two-matrix quantum mechanics sandwich ───────────────────────────────
+
+def _tm_qm_gate(*, E_lo, E_lo_cert, E_hi, E_mf, mf_converged, phi_cond, sym_loss,
+                grad_norm, e_tol, cond_max=1e8, sym_tol=1e-6, grad_tol=1e-3):
+    """V6 (audit-strengthened): bracket inclusion is necessary, NOT sufficient.
+
+    validated ⇔ certified lower bound AND E_lo≤E_hi bracket AND E_mf in-bracket AND E_mf
+    converged vs Fisher basis degree AND Gram well-conditioned AND the master field is
+    tracial+symmetric (sym_loss<sym_tol — the Cuntz vacuum is not tracial by default) AND the
+    optimizer is stationary (grad_norm<grad_tol). A non-physical Cuntz–Fock artifact that
+    merely lands in the bracket is rejected.
+    """
+    in_bracket = (E_lo is not None and E_hi is not None and E_mf is not None
+                  and (E_lo - e_tol) <= E_mf <= (E_hi + e_tol))
+    bracket_ok = E_lo is not None and E_hi is not None and E_lo <= E_hi + e_tol
+    cond_ok = phi_cond is not None and phi_cond < cond_max
+    sym_ok = sym_loss is not None and sym_loss < sym_tol
+    grad_ok = grad_norm is not None and grad_norm < grad_tol
+    validation = {
+        "E_lo": E_lo, "E_hi": E_hi, "E_mf": E_mf,
+        "in_bracket": in_bracket, "bracket_ok": bracket_ok,
+        "mf_converged": bool(mf_converged), "phi_cond": phi_cond, "cond_ok": cond_ok,
+        "sym_loss": sym_loss, "sym_ok": sym_ok, "grad_norm": grad_norm, "grad_ok": grad_ok,
+        "certified": bool(E_lo_cert),
+    }
+    validated = bool(E_lo_cert and bracket_ok and in_bracket and mf_converged
+                     and cond_ok and sym_ok and grad_ok)
+    return validation, validated
+
+
+def solve_two_matrix_qm(m, lam, *, L=4, cutoff=8, degree=2, max_word_len=3,
+                        validate=True, e_tol=1e-2):
+    """Sandwich for HHK Eq 17: SDP lower (C1) + Gaussian upper (C2) + free-Fisher (C3).
+
+    Returns dict(m, lam, E_lo, E_hi, E_mf, m2, validation, validated). Fail-closed:
+    `validated` requires a certified SDP bracket AND a converged, well-conditioned E_mf.
+    """
+    E_hi = gaussian_master_field(m, lam)["energy"]
+    mf = fisher_master_field(m, lam, cutoff=cutoff, degree=degree, max_word_len=max_word_len)
+    E_mf = mf["energy"]
+
+    # convergence of E_mf vs the Fisher basis degree (must plateau, rising from below).
+    mf_lo = fisher_master_field(m, lam, cutoff=cutoff, degree=degree,
+                                max_word_len=max(1, max_word_len - 1))
+    mf_converged = abs(E_mf - mf_lo["energy"]) < 5e-2
+
+    out = {"m": m, "lam": lam, "E_hi": E_hi, "E_mf": E_mf, "m2": mf["m2"]}
+    if validate and HAS_CVXPY:
+        E_lo, solver, status = bootstrap_two_matrix_qm(m, lam, L=L, maximize=False,
+                                                       with_status=True)
+        cert = status == "optimal" and solver in TRUSTED_SOLVERS
+        val, ok = _tm_qm_gate(E_lo=E_lo, E_lo_cert=cert, E_hi=E_hi, E_mf=E_mf,
+                              mf_converged=mf_converged, phi_cond=mf["phi_cond"],
+                              sym_loss=mf["sym_loss"], grad_norm=mf["grad_norm"],
+                              e_tol=e_tol)
+        out.update(E_lo=E_lo, validation=val, validated=ok)
+    return out
