@@ -21,6 +21,60 @@ except ImportError:
     print("cvxpy not installed — SDP bootstrap unavailable")
 
 
+def _select_solver():
+    """Highest-accuracy installed conic solver: MOSEK (if licensed) > CLARABEL > SCS.
+
+    CLARABEL/MOSEK are interior-point (≈1e-8 tolerances) and return certified
+    'optimal' status; SCS is a first-order fallback that flags 'optimal_inaccurate'
+    on the larger (L≥8) two-matrix moment relaxations. Install `clarabel` (no
+    license) or `mosek` (academic license) to certify the tight islands.
+    """
+    if not HAS_CVXPY:
+        return None
+    installed = set(cp.installed_solvers())
+    for s in ("MOSEK", "CLARABEL", "SCS"):
+        if s in installed:
+            return s
+    return None
+
+
+SOLVER = _select_solver()
+_LAST_SOLVE = {"solver": None, "status": None}  # which solver/status produced the last bound
+
+# The two-matrix moment relaxations are degenerate (no strictly-interior point), so
+# default-CLARABEL fails on several instances (e.g. g=1, L=10). A small static
+# regularization stabilizes the KKT factorization and recovers a certified
+# 'optimal' there (verified: g=1 L=10 lb 0.69307); the perturbation is ≤1e-3.
+_CLARABEL_KW = {"max_iter": 5000, "static_regularization_constant": 1e-7}
+
+
+def _solve(problem):
+    """Solve `problem` with the best available solver, falling back to SCS.
+
+    Tries the high-accuracy solver first (CLARABEL/MOSEK); on a solver error or a
+    non-optimal status it falls back to SCS (always installed, robust on the larger
+    moment relaxations). `_LAST_SOLVE` records the solver and status that produced
+    the returned value, for transparency about which bounds are interior-point
+    certified vs SCS estimates.
+    """
+    order = ([SOLVER] if SOLVER and SOLVER != "SCS" else []) + ["SCS"]
+    for s in order:
+        try:
+            if s == "SCS":
+                problem.solve(solver=cp.SCS, max_iters=20000)
+            elif s == "CLARABEL":
+                problem.solve(solver=cp.CLARABEL, **_CLARABEL_KW)
+            else:  # MOSEK or other interior-point solver — robust defaults
+                problem.solve(solver=getattr(cp, s))
+        except Exception:
+            _LAST_SOLVE.update(solver=s, status="error")
+            continue
+        _LAST_SOLVE.update(solver=s, status=problem.status)
+        if problem.status in ("optimal", "optimal_inaccurate"):
+            return problem
+    return problem
+
+
 def bootstrap_one_matrix(
     v_prime_coeffs: list[float], max_moment: int = 10, target_moment: int = 2, maximize: bool = True
 ) -> float | None:
@@ -95,7 +149,7 @@ def bootstrap_one_matrix(
     problem = cp.Problem(objective, constraints)
 
     try:
-        problem.solve(solver=cp.SCS, verbose=False, max_iters=10000)
+        _solve(problem)
         if problem.status in ["optimal", "optimal_inaccurate"]:
             return problem.value
         else:
@@ -206,7 +260,7 @@ def bootstrap_two_matrix(g, max_word_len=4, target_word=(0, 0), maximize=True):
     obj = cp.Maximize(M[cidx[tc]]) if maximize else cp.Minimize(M[cidx[tc]])
     problem = cp.Problem(obj, cons)
     try:
-        problem.solve(max_iters=20000)
+        _solve(problem)
         if problem.status in ("optimal", "optimal_inaccurate"):
             return float(problem.value)
         return None

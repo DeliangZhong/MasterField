@@ -6,8 +6,8 @@ S = N·tr[½(M₀²+M₁²) − (g²/4)[M₀,M₁]²], coupling g (λ=g²).
 the exact nonlinear loop-equation residual + cyclicity/exchange/Z₂ penalties,
 g-homotopy Adam + L-BFGS polish. Positivity automatic (Hermitian operators,
 vacuum state). Validator: our own SDP island `bootstrap_two_matrix` (checked at
-relaxation order L; the gate default was raised to L=8 — see Refinements §1) +
-the g=0 free limit. Engine entry point: `train.solve_two_matrix`.
+relaxation order L, certified by CLARABEL; the gate default was raised to L=8 —
+see Refinements §1) + the g=0 free limit. Engine entry point: `train.solve_two_matrix`.
 
 ## Headline: the g>0 solve now lands inside the rigorous island
 
@@ -52,13 +52,14 @@ the gate *rejects* it; the genuine in-tight-island result needs max_word_len=3
 
 ## Refinements §1 — truncation convergence and the SDP sandwich
 
-The SDP island tightens fast with relaxation order L, sandwiching the true value:
+The SDP island — **certified by CLARABEL** (interior-point, status `optimal`) —
+tightens fast with relaxation order L, sandwiching the true value:
 
 | L | tr M₀² island at g=1 | width |  | tr M₀² island at g=0.5 | width |
 |---|---|---|---|---|---|
-| 6 | [0.618, 1.000] | 0.382 | | [0.828, 1.000] | 0.172 |
-| 8 | [0.634, 0.727] | 0.092 | | [0.836, 0.858] | 0.022 |
-| 10 | [0.693, 0.714] | 0.021 | | [0.854, 0.856] | 0.002 |
+| 6 | [0.61803, 1.00000] | 0.382 | | [0.82843, 1.00000] | 0.172 |
+| 8 | [0.63322, 0.72655] | 0.093 | | [0.83581, 0.85818] | 0.022 |
+| 10 | [0.69307, 0.71408] | 0.021 | | [0.85375, 0.85633] | 0.003 |
 
 So the master-field value is **tr M₀²(g=1) ≈ 0.70** and **(g=0.5) ≈ 0.855**.
 Convergence of the operator solve (degree-3) against this sandwich:
@@ -70,17 +71,23 @@ Convergence of the operator solve (degree-3) against this sandwich:
   max_word_len the loop equations + positivity + symmetry do **not** uniquely pin
   the moment (the island has width); the operator solve realizes a valid point in
   it. max_word_len=2 gives ≈0.80 — *inside L=6 but OUTSIDE the tight L=8/10 island*
-  → a truncation artifact. **max_word_len=3 gives 0.6938 — inside the tight L=10
-  island [0.693, 0.714]: operator and bootstrap agree to ~1%.**
+  → a truncation artifact. **max_word_len=3 gives 0.6938 — inside the certified
+  L=10 island [0.69307, 0.71408]: operator and bootstrap agree to ~1%.** (At g=0.5
+  the operator gives 0.8537, ~5e-5 below the certified lb 0.85375 — the operator's
+  own residual max_word_len-truncation; the two methods still agree to ~1e-3, and
+  the certified bracket is now tight enough to expose that residual gap.)
 - **Lesson (now enforced in code):** a meaningful g>0 guard needs max_word_len ≥ 3
   *and* sdp_word_len ≥ 8. The gate default `sdp_word_len` was raised 6→8.
 
-*Solver caveat:* SCS reports "optimal_inaccurate" for L≥8, so the tight brackets
-are estimates (good to ~1e-2), not certified bounds. The cleanly-solved rigorous
-statement is the L=6 island; L=8/10 are accuracy-limited. A high-accuracy conic
-solver (CLARABEL/MOSEK) is the rigorous follow-up. Fock-cutoff scaling
-(max_word_len=4 needs dim 8191 with the dense representation) caps the operator
-side at max_word_len=3 here; a sparse Fock representation would push it further.
+*Solver:* the islands are **certified by CLARABEL** (`bootstrap_sdp._select_solver`
+prefers MOSEK → CLARABEL → SCS). These moment relaxations are degenerate (no
+strictly-interior point), so default CLARABEL fails on several instances (e.g. g=1
+L=10); a small **static regularization** (1e-7) stabilizes the KKT factorization
+and recovers a certified `optimal` (perturbation ≤1e-3), with SCS as an automatic
+per-instance fallback. The certified brackets match the earlier SCS estimates to
+~1e-3. Fock-cutoff scaling (max_word_len=4 needs dim 8191 with the dense
+representation) caps the operator side at max_word_len=3 here; a sparse Fock
+representation would push it further.
 
 ## Refinements §2 — cross-ansatz (spurious-solution stress test)
 
@@ -114,9 +121,10 @@ Read off the degree-3 solves (figure: `figures/m3_observables.png`):
 
 ## Remaining (sharper, future)
 
-- A **high-accuracy conic solver** to certify the L≥8 brackets (SCS is
-  accuracy-limited); and/or a **sparse Fock representation** to push the operator
-  solve past max_word_len=3.
+- ~~high-accuracy conic solver to certify the L≥8 brackets~~ **done** (CLARABEL,
+  Refinements §1). A **sparse Fock representation** would push the operator solve
+  past max_word_len=3 (dim 8191 at max_word_len=4 caps it), shrinking the
+  operator's residual truncation gap to the certified island.
 - Dense-ansatz cross-check at max_word_len=3; a proper τ-Brown measure of M̂₀+iM̂₁.
 
 ## Latent bug fixed

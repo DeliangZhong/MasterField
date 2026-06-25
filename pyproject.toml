@@ -12,6 +12,7 @@ dependencies = [
     "optax",
     "flax",
     "cvxpy",
+    "clarabel",  # high-accuracy interior-point conic solver (certifies the SDP islands)
     "torch",
 ]
 
