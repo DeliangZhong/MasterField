@@ -102,3 +102,24 @@ def test_fisher_master_field_anchor_lambda0():
     r = fisher_master_field(1.0, 0.0, cutoff=8, degree=2, max_word_len=3, steps=1500, lr=5e-3)
     assert abs(r["energy"] - 2.0) < 5e-2     # E/N² → 2m at λ=0
     assert abs(r["m2"] - 0.5) < 5e-2
+
+
+@pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
+                    reason="slow: Cuntz–Fock optimization; set MMF_SLOW=1")
+def test_fisher_beats_gaussian_at_degree3():
+    # M5c KEY RESULT: at degree-3 the free-Fisher operator field captures non-Gaussian
+    # correlations and drops BELOW the Gaussian/Hartree bound for λ>0. The degree-2 ansatz
+    # only reaches semicircular states and coincides with the Gaussian EXACTLY (the M3
+    # expressiveness lesson). m=1, λ=1.
+    from matrix_master_field.qm_master_field import fisher_master_field, gaussian_master_field
+    e_hi = gaussian_master_field(1.0, 1.0)["energy"]            # rigorous Gaussian upper bound
+
+    deg2 = fisher_master_field(1.0, 1.0, cutoff=8, degree=2, max_word_len=3)
+    assert abs(deg2["energy"] - e_hi) < 1e-4                    # degree-2 ≡ Gaussian (under-expressive)
+
+    deg3 = fisher_master_field(1.0, 1.0, cutoff=10, degree=3, max_word_len=3, steps=2500)
+    assert deg3["energy"] < e_hi - 2e-2                         # non-Gaussian estimate beats Hartree
+    assert deg3["energy"] > 2.0                                 # ...stays above the free floor
+    assert deg3["sym_loss"] < 1e-6                              # traciality maintained
+    assert deg3["grad_norm"] < 1e-3                            # optimizer converged
+    assert deg3["phi_cond"] < 1e8                              # Gram well-conditioned

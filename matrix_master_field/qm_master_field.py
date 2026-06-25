@@ -100,6 +100,13 @@ def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
     training loss = energy + w_sym·(cyclicity + X↔Y exchange + Z₂×Z₂); the reported `energy`
     excludes the penalty, and `sym_loss` reports the residual symmetry violation.
 
+    NOTE (M3 expressiveness lesson): **degree≥3 is required** for a genuinely non-Gaussian
+    estimate at λ>0. The degree-2 ansatz only reaches semicircular states and coincides EXACTLY
+    with the Gaussian/Hartree bound (`gaussian_master_field`); degree-3 drops below it (e.g.
+    m=1, λ=1: 2.322 vs Gaussian 2.365), capturing the non-Gaussian correlations. For a
+    production λ>0 estimate pass `degree=3, cutoff=10`; the `degree=2` default validates the
+    anchor/reduction cleanly (and is what the certified sandwich gate uses at λ=0).
+
     Positivity automatic (tracial vacuum). Returns
     dict(energy, m2, comm2, phi_cond, sym_loss, grad_norm, params).
     """
