@@ -153,10 +153,103 @@ free point. **Numeric check:** `test_quarter_phi_star_reduces_to_m5b_kinetic`
 
 ## What lands in later tasks
 
-- **Task 2:** the nonzero-λ finite-N Wick → large-N check pinning the interaction coefficient
-  `−λ/(2Ω²)` and its N-powers (the anchor alone, with λ=0, cannot test the interaction term).
+- **Task 2:** *(done — see C2 section below)* the nonzero-λ finite-N Wick → large-N check pinning
+  the interaction coefficient `+λ/(2Ω²)` and its N-powers.
 - **Task 5 (T4 full):** the general two-matrix `Φ*(X̃,Ỹ) = bᵀG⁻¹b` from the conjugate-variable
   relation `τ(ξ_X w)=τ⊗τ(∂_X w)` (which requires `τ` tracial), and the g=0 free-additivity check
   `Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`.
 - **Task 3 (T5/T2):** the stationarity loop equations `⟨[H,Tr w]⟩=0` and the SU(N) Gauss law
   `m[(0,2)+O]−m[(2,0)+O]=i·m[O]`, each verified against the exact g=0 Gaussian moments.
+
+---
+
+## C2 — Gaussian master field: variational upper bound
+
+**Implementation:** `matrix_master_field/qm_master_field.py`
+**Tests:** `matrix_master_field/tests/test_qm_master_field.py` (5 tests, all GREEN)
+
+### Trial state and two-point functions
+
+The Gaussian trial state `|ψ_G(Ω)⟩` is the ground state of the free Hamiltonian
+`Tr(P_X² + Ω²X²) + Tr(P_Y² + Ω²Y²)` with frequency `Ω > 0`. In this state `X` and `Y`
+are independent, each a Gaussian Hermitian matrix with two-point function
+
+```
+⟨X_ij X_kl⟩ = a δ_il δ_jk,    a = 1/(2Ω).
+```
+
+The momentum two-point function follows from the virial relation: `⟨(P_X)_ij (P_X)_kl⟩ = Ω² a δ_il δ_jk`.
+
+### Wick contraction of ⟨Tr[X,Y]²⟩
+
+Expanding the commutator:
+
+```
+Tr[X,Y]² = Tr(XYXY) − Tr(XYYX) − Tr(YXXY) + Tr(YXYX)
+          = 2 Tr(XYXY) − 2 Tr(XY²X)       (using cyclicity of trace).
+```
+
+Wick contractions (X,Y independent, so only same-letter pairs survive):
+
+```
+⟨Tr XYXY⟩ = ΣΣ ⟨X_ij X_kl⟩ ⟨Y_jk Y_li⟩ = Σ a δ_il δ_jk · a δ_ji δ_lk = a² Σ δ_ii δ_jj... 
+```
+
+Working through the index sums explicitly:
+
+```
+⟨Tr XYXY⟩ = Σ_{i,j,k,l} ⟨X_ij X_kl⟩ ⟨Y_jk Y_li⟩
+           = Σ a δ_il δ_jk · a δ_ji δ_lk = a² Σ_i δ_ii = a² N.
+
+⟨Tr XYYX⟩ = Σ_{i,j,k,l} ⟨X_ij X_lk⟩ ⟨Y_jk Y_kl⟩... = a² N³.
+```
+
+The second contraction picks up a factor N² from the two free index loops. Hence:
+
+```
+⟨Tr[X,Y]²⟩ = 2 a²N − 2 a²N³ = 2a²N(1 − N²).
+```
+
+For large N, the leading term is `−2a²N³ = −N³/(2Ω²)`.
+
+### Variational energy E/N²(Ω)
+
+With `X = √N X̃`, `Y = √N Ỹ` (so `a = 1/(2Ω)` applies to the unscaled matrices), and
+`g² = λ/N`:
+
+```
+(1/N²)⟨H⟩ = m[P̃_X²] + m[P̃_Y²] + m²(m[X̃²] + m[Ỹ²]) − (λ/N)·⟨Tr[X,Y]²⟩/N²
+```
+
+Using `m[P̃²] = Ω/2`, `m[X̃²] = 1/(2Ω)` (from the Gaussian ground state at frequency Ω), and
+the large-N limit of the commutator moment `⟨Tr[X,Y]²⟩/N³ → −1/(2Ω²)`:
+
+```
+E/N²(Ω) = Ω + m²/Ω + λ/(2Ω²).
+```
+
+The sign of the interaction contribution is positive because `−g²Tr[X,Y]² ≥ 0` (confining):
+`−(λ/N)·(−N³/(2Ω²))/N² = +λ/(2Ω²)`.
+
+### Minimization over Ω: the cubic equation
+
+The stationarity condition `∂(E/N²)/∂Ω = 0` gives:
+
+```
+1 − m²/Ω² − λ/Ω³ = 0   ⟹   Ω³ − m²Ω − λ = 0.
+```
+
+At `λ = 0`: `Ω³ = m²Ω ⟹ Ω = m` (the unique positive root), giving `E/N² = m + m + 0 = 2m`,
+which matches the g=0 anchor from T1. For `λ > 0`, the root is found numerically via `brentq`.
+
+### Sampling cross-check (test_wick_commutator_moment_matches_sampling)
+
+The Wick formula `⟨Tr[X,Y]²⟩ = 2a²N(1−N²)` is cross-checked against direct Monte Carlo sampling
+of independent Gaussian Hermitian matrices at N=12, Ω=1, 4000 trials (fixed seed 0). The
+sampled mean agrees with the analytic formula to within 6% relative tolerance.
+
+### Normalization cross-check (test_lambda_normalization_nonzero)
+
+For N=20, 80, 320 with Ω=1.3, λ=0.7, the finite-N energy shift `−(λ/N)·⟨Tr[X,Y]²⟩/N²`
+converges monotonically to the large-N target `λ/(2Ω²)`, reaching relative error O(1/N²).
+This pins both the overall coefficient and the N-power counting in the interaction term.
