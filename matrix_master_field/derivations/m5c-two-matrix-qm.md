@@ -1,273 +1,162 @@
 # M5c — Two-Matrix Quantum Mechanics: Derivations (T1, T4)
 
-**Date:** 2026-06-25  
-**Branch:** `matrix-master-field`  
+**Date:** 2026-06-25
+**Branch:** `matrix-master-field`
 **Verification:** `matrix_master_field/tests/test_m5c_derivations.py` (3 tests, all GREEN)
+
+> Scope: this file discharges T1 (model, scaling, g=0 anchor) and the T4 1-D building
+> block (free Fisher information of a density). The general two-matrix `Φ*=bᵀG⁻¹b` (T4 full),
+> the stationarity/Gauss relations (T5/T2), and the nonzero-λ normalization check land in
+> Tasks 5, 3, and 2 respectively. Citations are limited to results we can verify; analytic
+> computations shown here stand on their own and are cited to no one.
 
 ---
 
-## T1 — Pinned Model, Scaling, and g=0 Anchor
+## T1 — Pinned model, large-N scaling, and the g=0 anchor
 
-### Model (Eq 17 convention)
+### Model (HHK Eq 17)
 
-The two-matrix quantum mechanics Hamiltonian at finite N is
-
-```
-H = Tr[P_X² + P_Y²] + m² Tr[X² + Y²] + (g²/N) Tr[X,Y]²
-```
-
-with X, Y Hermitian N×N matrices and P_X, P_Y their conjugate momenta,
-[X_ab, P_X_cd] = i δ_ac δ_bd.
-
-**Reference:** Bhanot, Halpern, Schwarz (hep-th/9305170), Eq. (1);
-Austing & Wheater (hep-th/0011077) use the same form. The coupling
-g²/N is the 't Hooft normalisation ensuring a finite N→∞ limit.
-
-### Large-N Scaling (X = √N X̃, λ = Ng²)
-
-Define rescaled fields X̃ = X/√N, Ỹ = Y/√N. Then:
-
-- `Tr X² = N · Tr_norm[X̃²] = N² · m[X̃²]` where `m[A] ≡ (1/N)Tr A` is the
-  normalised trace (expectation in the large-N state).
-- `Tr[X,Y]² = Tr[(√N X̃, √N Ỹ)]² = N² Tr[(X̃,Ỹ)]² = N³ m[[X̃,Ỹ]²]`.
-
-Derivation of the commutator scaling in full:
+The two-matrix quantum mechanics Hamiltonian is
 
 ```
-[X, Y] = [√N X̃, √N Ỹ] = N [X̃, Ỹ]
-
-Tr[X,Y]² = Tr(N[X̃,Ỹ])² = N² Tr[X̃,Ỹ]²
-
-(1/N) Tr[X,Y]² = N · Tr[X̃,Ỹ]²  = N² · (1/N)Tr[X̃,Ỹ]² = N² m[[X̃,Ỹ]²]
+H = Tr( P_X² + P_Y² + m²(X² + Y²) − g²[X,Y]² )
 ```
 
-Therefore the interaction term becomes:
+with `X, Y` Hermitian `N×N`, conjugate momenta `[X_ab, P_X,cd] = i δ_ad δ_bc` (and likewise
+`Y`), `ℏ=1`. The commutator coupling is **negative**: `[X,Y]` is anti-Hermitian
+(`[X,Y]† = [Y,X] = −[X,Y]`), so `Tr[X,Y]² ≤ 0` and `−g²Tr[X,Y]² ≥ 0` — the term is confining.
+
+**Reference:** Han, Hartnoll, Kruthoff, *Bootstrapping Matrix Quantum Mechanics*,
+arXiv:2004.10212, Eq. (17). ("HHK" throughout = Han–Hartnoll–Kruthoff.)
+
+### Large-N 't Hooft scaling (X = √N X̃, g² = λ/N)
+
+Define `X̃ = X/√N`, `Ỹ = Y/√N`, `P̃ = P/√N`, and the normalized trace
+`m[w] ≡ (1/N)⟨Tr w⟩ = O(1)` in the large-N ground state. Term by term:
 
 ```
-(g²/N) Tr[X,Y]² = (g²/N) · N² m[[X̃,Ỹ]²] · N  =  g² N² m[[X̃,Ỹ]²]
-                 = λ N m[[X̃,Ỹ]²]
+(1/N²) Tr X²      = (1/N²)·N·Tr X̃²        → m[X̃²]               (since Tr X² = N Tr X̃²)
+(1/N²) Tr P_X²    = m[P̃_X²]               (same scaling for P)
 ```
 
-where λ = Ng². Dividing the full Hamiltonian by N² gives the energy density:
+Commutator term, with `g² = λ/N` (λ = Ng² fixed):
 
 ```
-E/N² = m[P̃_X² + P̃_Y²] + m² m[X̃² + Ỹ²] + (g²/N) · N m[[X̃,Ỹ]²]
-     = m[P̃² + m²X̃²] + m[P̃² + m²Ỹ²] + λ m[[X̃,Ỹ]²]
+[X,Y] = [√N X̃, √N Ỹ] = N [X̃, Ỹ]
+Tr[X,Y]² = N² Tr[X̃,Ỹ]²
+g² Tr[X,Y]² = (λ/N)·N² Tr[X̃,Ỹ]² = λN Tr[X̃,Ỹ]²
+(1/N²) g² Tr[X,Y]² = (λ/N) Tr[X̃,Ỹ]² = λ · (1/N)Tr[X̃,Ỹ]² = λ m[[X̃,Ỹ]²]
 ```
 
-where the momentum kinetic terms scale as P_X = P̃_X/√N so
-`(1/N²)Tr P_X² = m[P̃_X²]` by the same argument.
-
-### HHK Coupling Conversion
-
-Halpern–Hoppe–Kessler (HHK) parametrise the model with a single dimensionless
-coupling Γ ≡ m²/g^{4/3} (keeping ℏ=1 and setting the scale by g). Our m and λ=Ng²
-relate to HHK by: m = Γ · g^{2/3}, so the weak-coupling (large m / small g) regime
-is Γ ≫ 1. The anchor below lives at g=0 (λ=0), i.e., Γ→∞.
-
-### g=0 Anchor: Derivation of E/N²=2m
-
-At g=0 (λ=0) the two matrices decouple. Each matrix X̃ satisfies a free matrix
-harmonic oscillator with Hamiltonian density (per matrix, large-N):
+Hence the energy density (dividing `H` by `N²`):
 
 ```
-h_X = m[P̃_X²] + m² m[X̃²]
+E/N² = m[P̃_X²] + m[P̃_Y²] + m²( m[X̃²] + m[Ỹ²] ) − λ m[[X̃,Ỹ]²]
 ```
 
-At large N the eigenvalue density of X̃ in the ground state is the Wigner
-semicircle with radius a determined by the virial theorem. For the harmonic
-oscillator Hamiltonian H_X = Tr[P_X² + m²X_2], the Schwinger–Dyson /
-loop equation at large N gives (see Makeenko–Migdal for matrix oscillators):
+The interaction sign is `−λ m[[X̃,Ỹ]²]`; since `m[[X̃,Ỹ]²] ≤ 0`, this contribution is `≥ 0`
+(confining), consistent with `−g²[X,Y]²` above. This is the energy functional used by all
+three pieces (SDP, Gaussian, free-Fisher).
 
-**Single-matrix oscillator ground state:**
+### Coupling dial
 
-The equation of motion gives `m[P̃²] = m² m[X̃²]`. The ground-state energy per
-matrix per unit N² is
+HHK control the model by the dimensionless ratio `m²/g^{4/3}` (arXiv:2004.10212). The g=0
+anchor below sits at `λ = 0`, i.e. `m²/g^{4/3} → ∞` (free / decoupled limit).
 
-```
-h_X = 2m² m[X̃²]     (virial: P and X contribute equally)
-```
+### g=0 anchor: E/N² = 2m
 
-The Wigner semicircle `σ(x) = (2/πa²)√(a²−x²)` satisfies the harmonic SD equation
-with `m[X̃²] = a²/4`. Substituting the SD equation for the harmonic potential
-`m[X̃ V'(X̃)] = m[X̃²]` (with `V' = 2m² X̃`) forces `a² = 1/m`:
+At `λ = 0`, `X̃` and `Ỹ` decouple: `H = H_1[X] ⊕ H_1[Y]` with `H_1 = Tr(P² + m²X²)`.
 
-**Derivation of a²:**
+**Single oscillator mode.** A Hermitian `N×N` matrix has `N²` independent real components; in an
+orthonormal basis `H_1 = Σ_{a=1}^{N²} (p_a² + m² x_a²)`, a sum of decoupled modes
+`h = p² + m²x²` with `[x,p]=i`. Writing `h = 2(½p² + ½m²x²)`, the rescaled oscillator
+`½p² + ½ω²x²` with frequency `ω = m` has spectrum `(n+½)m` and ground-state variance
+`⟨x²⟩ = 1/(2ω) = 1/(2m)`. Therefore `h` has spectrum `(2n+1)m`, ground energy `m`, and
+`⟨x²⟩ = 1/(2m)`.
 
-The master field SD equation for V(x) = m²x²:
-
-```
-∫ σ(y) m[[(1/(z−X̃)) V'(X̃) (1/(z−X̃))]] dy  =  G(z)²   (loop eq)
-```
-
-For the quadratic potential this reduces to: `m² · G'(z) + m² G(z)² = G(z)²`
-→ resolvent `G(z) = (z − √(z²−a²))/2` with `a² = 4/(4m²) = 1/m`
-(using the standard Haagerup–Thorbjørnsen result for the harmonic matrix oscillator;
-see Hiai & Petz "The Semicircle Law, Free Random Variables and Entropy", Thm 5.4.5).
-
-Therefore: `m[X̃²] = ∫ x² σ(x)dx = a²/4 = 1/(4m)`.
-
-Wait — this gives `m[X̃²] = 1/(4m)` at first. Let us recheck the conventional
-normalisation. With the Hamiltonian written as `H = Tr[P² + m²X²]` (no factor of
-½ in front), the ground energy for a single quantum harmonic oscillator mode with
-frequency ω = m is E_0 = ω/2. The N×N matrix has N² modes (at large N, the
-adjoint rep has N²−1 ≈ N² modes), so:
+**Aggregate (large N).** All `N²` modes in their ground state give `E_1 = N² m`, so
+`E_1/N² = m`. For the position moment, `Tr X² = Σ_a x_a²` gives `⟨Tr X²⟩ = N²·(1/(2m))`, and
+with `Tr X̃² = Tr X²/N`,
 
 ```
-E_X = N² · (m/2) · (1 + 1)  ← one quantum of each (position + momentum)
-    = N² m
+m[X̃²] = (1/N)⟨Tr X̃²⟩ = (1/N)·(N²/(2m))/N = 1/(2m).
 ```
 
-giving `E_X/N² = m` and by the virial theorem `m[X̃²] = E_X/(2m N²) = 1/(2m)`.
+The virial relation for `h = p² + m²x²` is `⟨p²⟩ = m²⟨x²⟩`, so `m[P̃²] = m²·1/(2m) = m/2`.
 
-This is the standard large-N matrix oscillator result (see e.g. Brezin & Gross,
-Phys. Lett. B97 (1980) 120; or equivalently, the free-probability result that
-the Wigner semicircle with variance σ² = 1/(2m) arises from the Gaussian matrix
-measure exp(−m Tr X²)):
-
-```
-∫ exp(−m Tr X²) X_ab X_cd dX  =  (1/(2m)) δ_ad δ_bc  (large-N, planar)
-→ m[X̃²] = 1/(2m)
-```
-
-**Summary of anchor values (g=0, two matrices X and Y):**
+**Two matrices:**
 
 | Quantity | Value | Derivation |
 |----------|-------|------------|
-| `m[X̃²] = m[Ỹ²]` | `1/(2m)` | Wigner semicircle variance from Gaussian matrix measure |
-| `m[P̃_X²] = m[P̃_Y²]` | `m/2` | Virial theorem: `m[P̃²] = m² m[X̃²] = m/2` |
-| `E_X/N²` | `m` | Sum: `m/2 + m/2 = m` |
-| `E/N²` (two matrices) | `2m` | Two independent matrix oscillators |
+| `m[X̃²] = m[Ỹ²]` | `1/(2m)` | ground variance `1/(2m)` of `h=p²+m²x²`, summed over `N²` modes |
+| `m[P̃_X²] = m[P̃_Y²]` | `m/2` | virial `⟨p²⟩ = m²⟨x²⟩` |
+| `E_1/N²` (per matrix) | `m` | `m[P̃²] + m² m[X̃²] = m/2 + m/2 = m` |
+| `E/N²` (two matrices) | **`2m`** | two decoupled matrix oscillators |
 
-**Numeric check:** `test_g0_anchor_is_2m` in `test_m5c_derivations.py` verifies
-these values to machine precision for m ∈ {0.5, 1.0, 2.0}.
-
----
-
-## T4 (Partial) — Free Fisher Information Φ*[σ]
-
-### Definition and Formula
-
-The **free Fisher information** of a probability density σ on ℝ is defined by
-Voiculescu (1998) as:
-
-```
-Φ*[σ] = ∫ J(σ)(x)² σ(x) dx
-```
-
-where `J(σ)(x) = 2 π² ∫∫ σ(y)σ(z) / (x−y)(x−z) dydz` is the free score function.
-For absolutely continuous σ this simplifies (Voiculescu, Free Entropy,
-Invent. Math. 132 (1998) 189, Proposition 7.7; or Biane–Speicher,
-Ann. Probab. 29 (2001) 1, Prop 6.2) to:
-
-```
-Φ*[σ] = (4π²/3) ∫ σ(x)³ dx
-```
-
-This is the formula implemented in `free_fisher.phi_star_density`.
-
-**Reference:** Biane & Speicher, "Free diffusions, free entropy and free Fisher
-information", Ann. Inst. Henri Poincaré Probab. Stat. **37** (2001) 581–606,
-Eq. (6.3); Voiculescu, "The analogues of entropy and of Fisher's information
-measure in free probability, V", Invent. Math. **132** (1998) 189–227.
-
-### Analytic Semicircle Check
-
-The standard semicircle on [−2,2] with variance 1:
-
-```
-σ_sc(x) = √(4−x²) / (2π),   x ∈ [−2, 2]
-```
-
-Compute `∫_{−2}^{2} σ_sc(x)³ dx`:
-
-```
-∫_{−2}^{2} (4−x²)^{3/2} / (8π³) dx
-```
-
-Substitute x = 2 sin θ, dx = 2 cos θ dθ:
-
-```
-= ∫_{−π/2}^{π/2} (4cos²θ)^{3/2} / (8π³) · 2 cos θ dθ
-= ∫_{−π/2}^{π/2} 8 cos³θ / (8π³) · 2 cos θ dθ
-= (2/π³) ∫_{−π/2}^{π/2} cos⁴θ dθ
-= (2/π³) · (3π/8)
-= 3/(4π²)
-```
-
-(using `∫_{−π/2}^{π/2} cos⁴θ dθ = 3π/8`).
-
-Therefore:
-
-```
-Φ*[σ_sc] = (4π²/3) · 3/(4π²) = 1
-```
-
-This is the known result that the standard semicircle has free Fisher information
-equal to 1 (Voiculescu 1998, ibid., after Proposition 7.8).
-
-**Numeric check:** `test_phi_star_semicircle_is_one` verifies this to `< 1e-4`
-using a 200001-point grid on [−2, 2].
-
-### ¼Φ* and the M5b Kinetic Identity
-
-The M5b collective-field ground state uses a single-matrix density with variance ½:
-
-```
-σ_½(x) = √(2−x²) / π,   x ∈ [−√2, √2]
-```
-
-(This is the semicircle with radius a = √2, variance a²/4 = ½.)
-
-**Claim:** `¼ Φ*[σ_½] = ½ = m[P̃²]` (the M5b kinetic energy).
-
-**Derivation:**
-
-Apply the formula with σ = σ_½:
-
-```
-∫ σ_½(x)³ dx = ∫_{−√2}^{√2} (2−x²)^{3/2} / π³ dx
-```
-
-Substitute x = √2 sin θ:
-
-```
-= (√2/π³) ∫_{−π/2}^{π/2} (2cos²θ)^{3/2} cos θ dθ
-= (√2/π³) · 2√2 ∫_{−π/2}^{π/2} cos⁴θ dθ
-= (4/π³) · (3π/8)
-= 3/(2π²)
-```
-
-Therefore:
-
-```
-Φ*[σ_½] = (4π²/3) · 3/(2π²) = 2
-
-¼ Φ*[σ_½] = ½
-```
-
-And `m[P̃²] = m · m[X̃²] = 1 · ½ = ½` (at m=1, g=0), confirming the identity
-`¼ Φ* = m[P̃²]` at the free point.
-
-The M5b kinetic functional evaluates to the same:
-
-```
-∫ π²σ³/3 dx = (π²/3) · 3/(2π²) = ½
-```
-
-which equals `¼ Φ*[σ_½]` since `(4π²/3) · (1/4) = π²/3`. The identity
-`¼ Φ*[σ] = ∫ π²σ³/3 dx` holds term-by-term by the Φ* formula.
-
-**Numeric check:** `test_quarter_phi_star_reduces_to_m5b_kinetic` verifies both
-`quarter_phi ≈ m5b_kinetic` (to `< 1e-4`) and `quarter_phi ≈ 0.5` (to `< 1e-3`)
-on a 200001-point grid.
+This anchor value is convention-independent: it is the physical ground energy `2N²m` of Eq 17
+at `g=0`, divided by `N²`. **Numeric check:** `test_g0_anchor_is_2m` verifies `E/N²=2m` and
+`m[X̃²]=1/(2m)` to `1e-12` for `m ∈ {0.5, 1.0, 2.0}`.
 
 ---
 
-## What Lands in Later Tasks
+## T4 (partial) — Free Fisher information of a 1-D density
 
-- **Task 5 (T4, full):** The general two-matrix free Fisher information `Φ*=bᵀG⁻¹b`
-  (the Cauchy transform / R-transform relation for joint distributions) and its
-  g=0 free-additivity check `Φ*(σ_X⊗σ_Y) = Φ*(σ_X) + Φ*(σ_Y)`.
-- **Task 2:** Finite-N `λ/(2Ω²)` check that pins the interaction coefficient
-  and N-power counting from the scaling derivation above.
+### Formula
+
+For a probability density `σ` on ℝ, Voiculescu's free Fisher information evaluates to
+
+```
+Φ*[σ] = (4π²/3) ∫ σ(x)³ dx,
+```
+
+implemented in `free_fisher.phi_star_density`. We cite the free-Fisher-information / free-entropy
+framework to Voiculescu, *The analogues of entropy and of Fisher's information measure in free
+probability theory, V*, Invent. Math. **132** (1998) 189–227, and verify the `(4π²/3)`
+normalization analytically below (the standard semicircle must give `Φ*=1`).
+
+### Analytic semicircle check (Φ* = 1)
+
+Standard semicircle on `[−2,2]`, variance 1: `σ(x) = √(4−x²)/(2π)`. Then
+
+```
+∫_{−2}^{2} σ³ dx = ∫_{−2}^{2} (4−x²)^{3/2}/(8π³) dx        [x = 2 sinθ]
+                = (1/(8π³)) ∫_{−π/2}^{π/2} (4cos²θ)^{3/2}·2cosθ dθ
+                = (1/(8π³)) ∫_{−π/2}^{π/2} 16 cos⁴θ dθ
+                = (16/(8π³))·(3π/8) = 3/(4π²),
+```
+
+using `∫_{−π/2}^{π/2} cos⁴θ dθ = 3π/8`. Hence `Φ*[σ] = (4π²/3)·3/(4π²) = 1`.
+**Numeric check:** `test_phi_star_semicircle_is_one` (200001-point grid, `<1e-4`).
+
+### ¼Φ* = the M5b kinetic term
+
+The M5b g=0 collective density is `σ(y) = √(2−y²)/π` on `[−√2,√2]` (semicircle of variance ½).
+
+```
+∫ σ³ dy = ∫_{−√2}^{√2} (2−y²)^{3/2}/π³ dy   [y = √2 sinθ]
+        = (1/π³)·4·(3π/8) = 3/(2π²),
+```
+
+so `Φ*[σ] = (4π²/3)·3/(2π²) = 2` and `¼Φ*[σ] = ½`. The M5b collective kinetic functional gives
+the same number,
+
+```
+∫ (π²/3) σ³ dy = (π²/3)·3/(2π²) = ½,
+```
+
+and the two agree identically because `(4π²/3)·¼ = π²/3` — i.e. `¼Φ*[σ] = ∫(π²/3)σ³` term by
+term. At the anchor (`m=1`), `½ = m[P̃²]`, confirming the kinetic identity `m[P̃²] = ¼Φ*` at the
+free point. **Numeric check:** `test_quarter_phi_star_reduces_to_m5b_kinetic`
+(`quarter_phi ≈ m5b_kinetic < 1e-4` and `≈ 0.5 < 1e-3`).
+
+---
+
+## What lands in later tasks
+
+- **Task 2:** the nonzero-λ finite-N Wick → large-N check pinning the interaction coefficient
+  `−λ/(2Ω²)` and its N-powers (the anchor alone, with λ=0, cannot test the interaction term).
+- **Task 5 (T4 full):** the general two-matrix `Φ*(X̃,Ỹ) = bᵀG⁻¹b` from the conjugate-variable
+  relation `τ(ξ_X w)=τ⊗τ(∂_X w)` (which requires `τ` tracial), and the g=0 free-additivity check
+  `Φ*(X̃,Ỹ)=Φ*(X̃)+Φ*(Ỹ)=4 ⇒ ¼Φ*=1`.
+- **Task 3 (T5/T2):** the stationarity loop equations `⟨[H,Tr w]⟩=0` and the SU(N) Gauss law
+  `m[(0,2)+O]−m[(2,0)+O]=i·m[O]`, each verified against the exact g=0 Gaussian moments.
