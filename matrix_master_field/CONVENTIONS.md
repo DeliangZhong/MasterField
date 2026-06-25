@@ -17,6 +17,16 @@
   island. Force verified by finite difference vs ∂_A tr V on random Hermitian A,B.
 - Cuntz–Fock: a_i a†_j = δ_ij; vacuum |Ω⟩; tracial state τ=⟨Ω|·|Ω⟩ with cyclicity imposed (the Cuntz vacuum is not tracial in general). Positivity of τ is automatic.
 - Float64 in all JAX code (`jax.config.update("jax_enable_x64", True)` at file top).
+- **Quantum mechanics (Milestone 5)** — single particle (M5a, HHK arXiv:2004.10212 Eq 1):
+  H = p² + x² + g x⁴, ℏ=1, **[x,p]=+i** (HHK write [p,x]=−i), g≥0. Energy eigenstate |E⟩,
+  moments m_k=⟨x^k⟩, m₀=1 (hard), odd moments 0 (parity). Oscillator rep x̂=(â+â†)/√2,
+  p̂=−i(â−â†)/√2 with **[â,â†]=1** (BOSONIC Fock — NOT the free Cuntz–Fock ââ†=1) ⟹ [x̂,p̂]=i.
+  Stationarity recursion (= HHK Eq 6, re-derived in `derivations/m5a-anharmonic-qm.md`):
+  4tE·m_{t-1} + t(t-1)(t-2)·m_{t-3} − 4(t+1)·m_{t+1} − 4g(t+2)·m_{t+3} = 0.
+  Anchors: g=0 → E₀=1, m₂=½ (exact); g=1 → E₀=1.392352 (HHK). Method = sandwich: certified
+  SDP lower bound (margin SDP `max t: Hankel⪰t·I` + anchored downward bisection from the
+  exact-diag E₀) ≤ E₀ ≤ variational upper bound (λ_min of the truncated Ĥ), fail-closed in
+  `train.solve_qm_anharmonic`. M5b (single matrix, HHK Eq 8) and M5c (two-matrix, Eq 17) follow.
 
 ## Test runner (Milestone 1)
 
