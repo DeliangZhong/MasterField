@@ -1,6 +1,10 @@
 # matrix_master_field/tests/test_qm_master_field.py
 """M5c — Gaussian master field (C2) + free-Fisher operator field (C3)."""
+import math
+import os
+
 import numpy as np
+import pytest
 
 from matrix_master_field.qm_master_field import (
     gaussian_comm_moment,
@@ -72,10 +76,6 @@ def _gauss_herm(rng, N, a):
 
 
 # ─── C3: free-Fisher operator master field ─────────────────────────────────────
-
-import math
-import os
-import pytest
 
 
 def test_free_fisher_reduces_to_one_matrix_semicircle():

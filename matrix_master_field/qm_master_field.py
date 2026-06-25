@@ -143,7 +143,7 @@ def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
         _, g = val_and_grad(params)
         updates, state = opt.update(g, state)
         params = optax.apply_updates(params, updates)
-    grad_norm = float(optax.global_norm(g))  # optimizer stationarity (V6)
+    grad_norm = float(optax.tree.norm(g))  # optimizer stationarity (V6); global L2 norm
 
     moment = shared.moment_fn(params)
     phi, cond = free_fisher_information(moment, basis, n_matrices=2)
