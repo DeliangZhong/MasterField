@@ -24,7 +24,9 @@ from matrix_master_field.bootstrap_sdp import HAS_CVXPY, bootstrap_two_matrix  #
 from matrix_master_field.fock_jax import power_moments, word_moment  # noqa: E402
 from matrix_master_field.loss import (  # noqa: E402
     one_matrix_sd_residual,
+    sd_residual_from_moment,
     symmetry_losses,
+    symmetry_losses_from_moment,
     two_matrix_sd_residual,
     two_matrix_test_words,
 )
@@ -167,6 +169,74 @@ def solve_two_matrix(
 
     if validate:
         tr_target = float(word_moment(ops, target_word))
+        sd_ok = sd_loss < sd_tol
+        lb = ub = in_island = None
+        if HAS_CVXPY:
+            lb = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
+                                      target_word=target_word, maximize=False)
+            ub = bootstrap_two_matrix(g_target, max_word_len=sdp_word_len,
+                                      target_word=target_word, maximize=True)
+            if lb is not None and ub is not None:
+                in_island = (lb - island_tol) <= tr_target <= (ub + island_tol)
+        result["validation"] = {
+            "target_word": target_word, "target_value": tr_target,
+            "sd_ok": sd_ok, "island": (lb, ub), "in_island": in_island,
+        }
+        result["validated"] = bool(sd_ok and in_island is True)
+    return result
+
+
+def solve_two_matrix_sparse(
+    field, g_target, *, max_word_len=4, w_sym=10.0, g_schedule=None,
+    steps=2000, lr=5e-3, polish=True, validate=True, target_word=(0, 0),
+    sdp_word_len=8, sd_tol=1e-4, island_tol=1e-3,
+):
+    """Sparse-Fock two-matrix solve: identical physics and fail-closed gate to
+    `solve_two_matrix`, but evaluates moments with the scatter-add
+    `SparseMonomialField` instead of dense D×D matrices — so it reaches large
+    cutoffs (max_word_len ≥ 5, dim ≥ 8191) where the dense path runs out of memory.
+
+    `field` is a `sparse_fock.SparseMonomialField`. Returns the same dict shape as
+    `solve_two_matrix` (with `params`, `sd_loss`, `validated`, `validation`, `field`).
+    """
+    need = ((max_word_len + 3) // 2) * field.degree
+    if field.cutoff < need:
+        raise ValueError(
+            f"sparse Fock cutoff={field.cutoff} too small for max_word_len="
+            f"{max_word_len}, degree={field.degree}: need >= {need} "
+            f"(= ⌊(max_word_len+3)/2⌋·degree)."
+        )
+
+    words = two_matrix_test_words(max_word_len)
+    if g_schedule is None:
+        g_schedule = [g_target * t for t in (0.2, 0.4, 0.6, 0.8, 1.0)]
+
+    def make_loss(g):
+        def loss_fn(params):
+            def moment(w):
+                return field.word_moment(params, w)
+            return (sd_residual_from_moment(moment, words, g)
+                    + w_sym * symmetry_losses_from_moment(moment, words))
+        return loss_fn
+
+    params = field.params_for_free_field()
+    for g in g_schedule:
+        loss_fn = make_loss(g)
+        params = _adam_run(loss_fn, params, steps, lr)
+        if polish:
+            params = _lbfgs_polish(loss_fn, params)
+
+    def moment_final(w):
+        return field.word_moment(params, w)
+
+    sd_loss = float(sd_residual_from_moment(moment_final, words, g_target))
+    result = {
+        "params": params, "g": g_target, "sd_loss": sd_loss,
+        "sym_loss": float(symmetry_losses_from_moment(moment_final, words)),
+        "field": field,
+    }
+    if validate:
+        tr_target = float(field.word_moment(params, target_word))
         sd_ok = sd_loss < sd_tol
         lb = ub = in_island = None
         if HAS_CVXPY:

@@ -6,7 +6,8 @@ import pytest
 from matrix_master_field.ansatz import MultiMonomialAnsatz
 from matrix_master_field.bootstrap_sdp import HAS_CVXPY
 from matrix_master_field.fock_jax import FockOps, word_moment
-from matrix_master_field.train import solve_two_matrix
+from matrix_master_field.sparse_fock import SparseMonomialField
+from matrix_master_field.train import solve_two_matrix, solve_two_matrix_sparse
 
 
 def _comm_sq(ops):
@@ -88,6 +89,25 @@ def test_max_word_len3_solve_validated_in_tight_island():
     assert r["validated"] is True
     O = [jnp.asarray(o) for o in r["operators"]]
     assert 0.63 < float(word_moment(O, (0, 0))) < 0.73
+
+
+@pytest.mark.skipif(not HAS_CVXPY, reason="cvxpy needed for the SDP-island gate")
+def test_sparse_solve_g0_validated():
+    # The sparse-Fock solver reproduces the exact g=0 free field and passes the gate.
+    field = SparseMonomialField(2, cutoff=6, degree=3)
+    r = solve_two_matrix_sparse(field, 0.0, max_word_len=2, g_schedule=[0.0],
+                                steps=800, sdp_word_len=6)
+    assert r["validated"] is True
+    assert r["sd_loss"] < 1e-9
+    assert abs(float(field.word_moment(r["params"], (0, 0))) - 1.0) < 1e-6
+
+
+def test_sparse_solve_truncation_guard():
+    # Same degree-aware cutoff guard as the dense path: degree-3 needs cutoff
+    # ⌊(2+3)/2⌋·3 = 6, so cutoff 5 must be rejected.
+    field = SparseMonomialField(2, cutoff=5, degree=3)
+    with pytest.raises(ValueError):
+        solve_two_matrix_sparse(field, 0.5, max_word_len=2, validate=False)
 
 
 def test_truncation_guard_is_degree_aware():

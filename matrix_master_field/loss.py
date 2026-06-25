@@ -52,29 +52,38 @@ def two_matrix_test_words(max_len, n=2):
     return words
 
 
-def two_matrix_sd_residual(ops_list, test_words, g):
-    """Commutator+mass SD residual. ops_list=[M̂_0,M̂_1]; g the coupling (λ=g²)."""
+def sd_residual_from_moment(moment, test_words, g):
+    """Commutator+mass SD residual from a moment callable `moment(word)->scalar`.
+
+    Backend-agnostic: pass `lambda w: word_moment(ops_list, w)` (dense) or
+    `lambda w: field.word_moment(params, w)` (sparse). Both are differentiable.
+    """
     g2 = float(g) * float(g)
     total = jnp.asarray(0.0, dtype=jnp.float64)
     n_eqs = 0
     for w in test_words:
         for a in (0, 1):
             b = 1 - a
-            lhs = word_moment(ops_list, (a,) + w)
+            lhs = moment((a,) + w)
             if g2 != 0.0:
                 lhs = lhs + (g2 / 2.0) * (
-                    word_moment(ops_list, (a, b, b) + w)
-                    + word_moment(ops_list, (b, b, a) + w)
-                    - 2.0 * word_moment(ops_list, (b, a, b) + w)
+                    moment((a, b, b) + w)
+                    + moment((b, b, a) + w)
+                    - 2.0 * moment((b, a, b) + w)
                 )
             rhs = jnp.asarray(0.0, dtype=jnp.float64)
             for j in range(len(w)):
                 if w[j] == a:
-                    rhs = rhs + word_moment(ops_list, w[:j]) * word_moment(ops_list, w[j + 1:])
+                    rhs = rhs + moment(w[:j]) * moment(w[j + 1:])
             scale = jnp.maximum(jnp.abs(lhs) + jnp.abs(rhs), 1.0)
             total = total + ((lhs - rhs) / scale) ** 2
             n_eqs += 1
     return total / max(n_eqs, 1)
+
+
+def two_matrix_sd_residual(ops_list, test_words, g):
+    """Commutator+mass SD residual. ops_list=[M̂_0,M̂_1]; g the coupling (λ=g²)."""
+    return sd_residual_from_moment(lambda w: word_moment(ops_list, w), test_words, g)
 
 
 # ─── Symmetry losses (NOT automatic on the Cuntz vacuum) ──────────────────────
@@ -83,7 +92,7 @@ def _rotations(w):
     return [w[i:] + w[:i] for i in range(len(w))]
 
 
-def cyclicity_loss(ops_list, words):
+def cyclicity_from_moment(moment, words):
     """Penalize τ(w) ≠ τ(cyclic rotation of w) — enforces a tracial state."""
     total = jnp.asarray(0.0, dtype=jnp.float64)
     n = 0
@@ -91,14 +100,14 @@ def cyclicity_loss(ops_list, words):
         if len(w) < 2:
             continue
         rots = _rotations(w)
-        m0 = word_moment(ops_list, rots[0])
+        m0 = moment(rots[0])
         for r in rots[1:]:
-            total = total + (word_moment(ops_list, r) - m0) ** 2
+            total = total + (moment(r) - m0) ** 2
             n += 1
     return total / max(n, 1)
 
 
-def exchange_loss(ops_list, words):
+def exchange_from_moment(moment, words):
     """Penalize τ(w(M₁,M₂)) ≠ τ(w(M₂,M₁)) — M₁↔M₂ exchange symmetry (n=2)."""
     total = jnp.asarray(0.0, dtype=jnp.float64)
     n = 0
@@ -106,12 +115,12 @@ def exchange_loss(ops_list, words):
         if not w:
             continue
         sw = tuple(1 - x for x in w)
-        total = total + (word_moment(ops_list, w) - word_moment(ops_list, sw)) ** 2
+        total = total + (moment(w) - moment(sw)) ** 2
         n += 1
     return total / max(n, 1)
 
 
-def z2_loss(ops_list, words):
+def z2_from_moment(moment, words):
     """Z₂×Z₂ parity: each M_i→−M_i is independently a symmetry of the
     commutator+mass action, so any word with an ODD count of ANY generator has a
     vanishing moment (e.g. ⟨tr M₀M₁⟩, ⟨tr M₀³M₁⟩). Stronger than odd-total-length:
@@ -121,15 +130,39 @@ def z2_loss(ops_list, words):
     n = 0
     for w in words:
         if any(w.count(c) % 2 == 1 for c in set(w)):
-            total = total + word_moment(ops_list, w) ** 2
+            total = total + moment(w) ** 2
             n += 1
     return total / max(n, 1)
 
 
+def symmetry_losses_from_moment(moment, words):
+    """Sum of cyclicity + exchange + Z₂ penalties from a moment callable."""
+    return (
+        cyclicity_from_moment(moment, words)
+        + exchange_from_moment(moment, words)
+        + z2_from_moment(moment, words)
+    )
+
+
+def _dense_moment(ops_list):
+    return lambda w: word_moment(ops_list, w)
+
+
+def cyclicity_loss(ops_list, words):
+    """Penalize τ(w) ≠ τ(cyclic rotation of w) — enforces a tracial state."""
+    return cyclicity_from_moment(_dense_moment(ops_list), words)
+
+
+def exchange_loss(ops_list, words):
+    """Penalize τ(w(M₁,M₂)) ≠ τ(w(M₂,M₁)) — M₁↔M₂ exchange symmetry (n=2)."""
+    return exchange_from_moment(_dense_moment(ops_list), words)
+
+
+def z2_loss(ops_list, words):
+    """Z₂×Z₂ parity: any word with an ODD count of ANY generator vanishes."""
+    return z2_from_moment(_dense_moment(ops_list), words)
+
+
 def symmetry_losses(ops_list, words):
     """Sum of cyclicity + exchange + Z₂ penalties."""
-    return (
-        cyclicity_loss(ops_list, words)
-        + exchange_loss(ops_list, words)
-        + z2_loss(ops_list, words)
-    )
+    return symmetry_losses_from_moment(_dense_moment(ops_list), words)

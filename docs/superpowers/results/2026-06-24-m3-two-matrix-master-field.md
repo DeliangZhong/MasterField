@@ -119,12 +119,41 @@ Read off the degree-3 solves (figure: `figures/m3_observables.png`):
   (1/D)Tr, not the trace τ — the true Brown measure needs τ-functional calculus
   and is deferred.
 
+## Refinements §4 — sparse Fock representation (`sparse_fock.py`)
+
+Dense D×D operators cap the operator side at dim 1023 (max_word_len ≤ 4);
+max_word_len=5 needs dim 8191, where dense monomials (~50 × 8191² × 8 B × 2)
+would need ~50 GB. But the basic â_i, â†_i and every monomial â†_u â_v are 0/1
+**partial permutations** (|w⟩ → |u·w[|v|:]⟩ iff w starts with reverse(v)), so we
+store each as (src→tgt) index arrays and apply M̂_i = (A_i+A_iᵀ)/2 by JAX
+scatter-add — differentiable in the coefficients. `SparseMonomialField` +
+`train.solve_two_matrix_sparse` mirror the dense ansatz/solve and the same
+fail-closed gate; validated against the dense evaluator elementwise and to 1e-9
+on moments (`test_sparse_fock.py`).
+
+**max_word_len progression at g=1** (degree 3), vs the certified L=10 island
+[0.69307, 0.71408]:
+
+| max_word_len | dim | #transitions | tr M₀² | sd_loss | validated | time |
+|---|---|---|---|---|---|---|
+| 3 | 1023 | 13 263 | 0.6939 | 9e-18 | True (near lower edge) | 95 s |
+| 4 | 1023 | 13 263 | 0.6938 | 3e-13 | True | 4.9 min |
+| 5 | **8191** | 106 447 | **0.6975** | 1e-5 | True (more central) | 43 min |
+
+- **All three land inside the certified island.** As max_word_len grows the
+  operator value moves from the lower edge (0.6939) toward the interior (0.6975,
+  vs the island midpoint ≈0.704) — convergence toward the true value, narrowing
+  the operator-side gap that §1 exposed.
+- Sparse is also ~5× faster than dense at dim 1023 (13 263 transitions vs a 1023²
+  matvec) and is the *only* way to reach dim 8191. XLA compile of the unrolled
+  loss is slow at dim 8191 (~3–4 min/compile); the solve still completes.
+
 ## Remaining (sharper, future)
 
-- ~~high-accuracy conic solver to certify the L≥8 brackets~~ **done** (CLARABEL,
-  Refinements §1). A **sparse Fock representation** would push the operator solve
-  past max_word_len=3 (dim 8191 at max_word_len=4 caps it), shrinking the
-  operator's residual truncation gap to the certified island.
+- ~~high-accuracy conic solver~~ **done** (CLARABEL, §1); ~~sparse Fock to pass
+  max_word_len=3~~ **done** (§4, reaches max_word_len=5 / dim 8191). Going past
+  max_word_len=5 is now bounded by **XLA compile time** of the unrolled loss
+  (batching / `lax.scan` over words would help), not memory.
 - Dense-ansatz cross-check at max_word_len=3; a proper τ-Brown measure of M̂₀+iM̂₁.
 
 ## Latent bug fixed
