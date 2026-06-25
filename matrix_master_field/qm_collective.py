@@ -41,12 +41,49 @@ def collective_master_field(g):
 
 
 def collective_energy_density(sigma, ys, g):
-    """E/N²[σ] = ∫[π²σ³/3 + (y²+g y⁴)σ] dy on a grid (trapezoid). Used by the variational
-    upper bound (Task 2)."""
+    """E/N²[σ] = ∫[π²σ³/3 + (y²+g y⁴)σ] dy on a grid (trapezoid, version-proof)."""
     sigma = np.asarray(sigma, dtype=float)
     ys = np.asarray(ys, dtype=float)
     integrand = np.pi ** 2 * sigma ** 3 / 3.0 + (ys ** 2 + g * ys ** 4) * sigma
-    return float(np.trapezoid(integrand, ys))
+    return float(np.sum(0.5 * (integrand[:-1] + integrand[1:]) * np.diff(ys)))
+
+
+def collective_variational(g, n_grid=600, steps=4000, lr=5e-2, seed=0):
+    """Variational upper bound on E/N² by minimizing the collective functional over a
+    positive, normalized density ansatz σ_θ = softmax(θ)/Δy on a fixed grid (so σ≥0 and
+    ∫σ=Σσ·Δy=1 automatically). Returns dict(energy ≥ exact, ys, density). This is the
+    operator-master-field-by-minimization analog; the minimizer approximates the exact σ.
+    """
+    import jax
+    import jax.numpy as jnp
+    import optax
+
+    mf = collective_master_field(g)
+    ym = float(mf["ys"][-1]) * 1.4 + 0.5
+    ys = jnp.linspace(-ym, ym, n_grid)
+    dy = float(ys[1] - ys[0])
+    V = ys ** 2 + g * ys ** 4
+
+    def energy(theta):
+        sigma = jax.nn.softmax(theta) / dy  # σ≥0, Σσ·Δy = 1
+        return jnp.sum((jnp.pi ** 2 * sigma ** 3 / 3.0 + V * sigma) * dy)
+
+    theta = jnp.zeros(n_grid)
+    opt = optax.adam(lr)
+    state = opt.init(theta)
+    vg = jax.jit(jax.value_and_grad(energy))
+
+    @jax.jit
+    def step(theta, state):
+        loss, gr = vg(theta)
+        upd, state = opt.update(gr, state)
+        return optax.apply_updates(theta, upd), state, loss
+
+    for _ in range(steps):
+        theta, state, _ = step(theta, state)
+    sigma = jax.nn.softmax(theta) / dy
+    return {"energy": float(energy(theta)), "ys": np.asarray(ys),
+            "density": np.asarray(sigma)}
 
 
 def free_fermion_energy(g, N, n_basis=None):

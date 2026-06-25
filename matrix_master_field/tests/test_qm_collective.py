@@ -36,3 +36,12 @@ def test_free_fermion_converges_to_collective():
         assert abs(e_N[-1] - e_inf) < abs(e_N[0] - e_inf) + 1e-9  # converging in N
         assert abs(e_N[-1] - e_inf) < 5e-3
     assert abs(free_fermion_energy(0.0, 50) - 1.0) < 1e-12  # g=0 exact at any N
+
+
+def test_collective_variational_upper_bound():
+    from matrix_master_field.qm_collective import collective_variational
+    for g in (0.0, 1.0):
+        exact = collective_master_field(g)["energy"]
+        r = collective_variational(g)
+        assert r["energy"] >= exact - 1e-3   # variational: not (significantly) below the min
+        assert abs(r["energy"] - exact) < 5e-3
