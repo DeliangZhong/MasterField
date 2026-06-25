@@ -45,11 +45,31 @@ exact nonlinear loop equations to machine zero with positivity + Z₂×Z₂/exch
 automatic, landing inside our own MOSEK/CLARABEL-certified SDP island — exactly as for
 the M3 commutator model. The method is **not specific to one model**.
 
-## Remaining (M4)
+## Amortization — one network M̂(g,h) (novelty-(ii))
 
-- **Neural amortization M̂(g,h)** across the coupling plane (the other half of M4 /
-  novelty-(ii)) — extend `amortized.py` to two matrices using the suffix-shared
-  evaluator.
-- Scan the (g,h) phase structure; match KZ's published 6-digit moments (their tables
-  are in figures, not extracted here) as an external cross-check.
+`amortized.AmortizedKZ`: an MLP (g,h) → master-field coefficients on the sparse field
+(output bias **warm-started to the free field**, so it starts at the exact g=h=0
+solution everywhere; A↔B/Z₂ enforced by the symmetry loss). `train_amortized_kz`
+minimizes the **mean** KZ loop-equation + symmetry residual over a (g,h) grid, reusing
+the suffix-shared evaluator. A single net trained on a 6-point grid at max_word_len=3
+(dim 1023, ~3 min) reaches mean loss **1.4e-7** and **generalizes to held-out
+couplings** — the field it produces there lands **inside the certified KZ island**:
+
+| (g,h) — held out | amortized trA² | certified island | in? | direct trA² | residual |
+|---|---|---|---|---|---|
+| (0.45, 0.25) | 0.5727 | [0.5617, 0.5825] | ✓ | 0.5783 | 5e-5 |
+| (0.55, 0.35) | 0.5352 | [0.5193, 0.5438] | ✓ | 0.5383 | 2e-5 |
+
+So **one network represents the KZ master field across the coupling plane**, and at
+unseen couplings its output is certified inside the rigorous island — the amortized
+M̂(λ) novelty, realized for a two-matrix, two-coupling model. (At max_word_len=2 the
+net also trains to ~1e-8 and generalizes *by residual*, but the moment is non-unique
+there — the wide-island truncation effect, not an amortization failure; this is why
+the validated demo uses max_word_len=3.) Tests: `test_amortized_kz.py` (fast
+generalization-by-residual; env-gated `MMF_SLOW` in-certified-island).
+
+## Remaining
+
+- Scan the full (g,h) phase structure; match KZ's published 6-digit moments (their
+  tables are figures, not extracted here) as an external cross-check.
 - Path: M5 = matrix quantum mechanics → BFSS/BMN.

@@ -14,7 +14,13 @@ import optax  # noqa: E402
 
 from matrix_master_field.ansatz import MonomialAnsatz  # noqa: E402
 from matrix_master_field.fock_jax import power_moments  # noqa: E402
-from matrix_master_field.loss import one_matrix_sd_residual  # noqa: E402
+from matrix_master_field.loss import (  # noqa: E402
+    kz_sd_residual_from_moment,
+    one_matrix_sd_residual,
+    symmetry_losses_from_moment,
+    two_matrix_test_words,
+)
+from matrix_master_field.sparse_fock import SuffixSharedMoments  # noqa: E402
 
 
 class AmortizedMonomial:
@@ -76,3 +82,90 @@ def train_amortized(model, vprime_fn, g_values, K, *, steps=6000, lr=3e-3, seed=
 
     p, final = run(model.init_params(jax.random.PRNGKey(seed)))
     return p, float(final)
+
+
+# ─── Two-matrix / two-coupling amortization: a single net (g,h) ↦ M̂(g,h) ─────────
+
+class AmortizedKZ:
+    """MLP(g,h) → Kazakov–Zheng master-field coefficients (n, n_monomials) on a
+    `SparseMonomialField`. One network represents M̂(g,h) across the whole (g,h)
+    coupling plane (novelty-(ii)). The output bias is warm-started to the free field,
+    so at init the net returns the exact g=h=0 solution everywhere and learns the
+    coupling deformation from there. A↔B exchange / Z2 are enforced by the symmetry
+    loss in `train_amortized_kz` (not baked into the architecture)."""
+
+    def __init__(self, field, hidden=64):
+        self.field = field
+        self.n = field.n
+        self.m = field.n_monomials
+        self.P = self.n * self.m
+        self.hidden = hidden
+        self._free = jnp.reshape(field.params_for_free_field(), (-1,))
+
+    def init_params(self, key):
+        k1, k2, k3 = jax.random.split(key, 3)
+        h = self.hidden
+        return {
+            "w1": 0.3 * jax.random.normal(k1, (2, h), dtype=jnp.float64),
+            "b1": jnp.zeros(h, dtype=jnp.float64),
+            "w2": 0.3 * jax.random.normal(k2, (h, h), dtype=jnp.float64),
+            "b2": jnp.zeros(h, dtype=jnp.float64),
+            "w3": 0.01 * jax.random.normal(k3, (h, self.P), dtype=jnp.float64),
+            "b3": self._free,  # warm start: output ≈ free field at init for all (g,h)
+        }
+
+    def coeffs(self, params, g, h):
+        x = jnp.array([g, h], dtype=jnp.float64)
+        x = jnp.tanh(x @ params["w1"] + params["b1"])
+        x = jnp.tanh(x @ params["w2"] + params["b2"])
+        return (x @ params["w3"] + params["b3"]).reshape(self.n, self.m)
+
+
+def train_amortized_kz(model, gh_grid, *, max_word_len=2, w_sym=10.0, steps=4000,
+                       lr=3e-3, seed=0):
+    """Train `AmortizedKZ` on the mean KZ loop-equation + symmetry residual over a
+    fixed (g,h) grid. Returns (theta, final_mean_loss). Generalization to held-out
+    (g,h) follows from the smoothness of the master field in the couplings."""
+    field = model.field
+    words = two_matrix_test_words(max_word_len)
+    grid = [(float(g), float(h)) for g, h in gh_grid]
+    gmax = max((g for g, _ in grid), default=1.0) or 1.0
+    hmax = max((h for _, h in grid), default=1.0) or 1.0
+
+    # suffix-shared moment evaluator (record once at the largest couplings = superset)
+    needed = []
+
+    def _rec(w):
+        needed.append(tuple(w))
+        return 0.0
+
+    kz_sd_residual_from_moment(_rec, words, gmax, hmax)
+    symmetry_losses_from_moment(_rec, words)
+    shared = SuffixSharedMoments(field, needed)
+
+    def loss_fn(theta):
+        tot = jnp.asarray(0.0, dtype=jnp.float64)
+        for g, h in grid:
+            moment = shared.moment_fn(model.coeffs(theta, g, h))
+            tot = tot + (kz_sd_residual_from_moment(moment, words, g, h)
+                         + w_sym * symmetry_losses_from_moment(moment, words))
+        return tot / len(grid)
+
+    sched = optax.warmup_cosine_decay_schedule(lr * 0.01, lr, min(300, steps // 5), steps)
+    opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(sched))
+
+    @jax.jit
+    def run(theta):
+        st = opt.init(theta)
+
+        def body(c, _):
+            p, s = c
+            loss, grads = jax.value_and_grad(loss_fn)(p)
+            u, s = opt.update(grads, s, p)
+            return (optax.apply_updates(p, u), s), loss
+
+        (p, _), ls = jax.lax.scan(body, (theta, st), None, length=steps)
+        return p, ls[-1]
+
+    theta, final = run(model.init_params(jax.random.PRNGKey(seed)))
+    return theta, float(final)
