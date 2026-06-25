@@ -21,20 +21,40 @@ except ImportError:
     print("cvxpy not installed — SDP bootstrap unavailable")
 
 
+def _mosek_usable():
+    """True iff MOSEK is installed AND licensed (a trivial solve actually succeeds).
+
+    cvxpy lists MOSEK in `installed_solvers()` whenever the package merely imports —
+    even with NO license — but it then fails at solve time, and the fail-closed gate
+    would silently fall back to the untrusted SCS bound. We probe a real solve so an
+    installed-but-unlicensed MOSEK is never selected as a *trusted* certifier.
+    """
+    try:
+        x = cp.Variable()
+        cp.Problem(cp.Minimize(cp.sum_squares(x - 1))).solve(solver=cp.MOSEK)
+        return True
+    except Exception:
+        return False
+
+
 def _select_solver():
-    """Highest-accuracy installed conic solver: MOSEK (if licensed) > CLARABEL > SCS.
+    """Highest-accuracy *usable* conic solver: MOSEK (if licensed) > CLARABEL > SCS.
 
     CLARABEL/MOSEK are interior-point (≈1e-8 tolerances) and return certified
     'optimal' status; SCS is a first-order fallback that flags 'optimal_inaccurate'
     on the larger (L≥8) two-matrix moment relaxations. Install `clarabel` (no
-    license) or `mosek` (academic license) to certify the tight islands.
+    license; also bundled with cvxpy) or `mosek` (academic license) to certify the
+    tight islands. An installed-but-unlicensed MOSEK is skipped (see `_mosek_usable`).
     """
     if not HAS_CVXPY:
         return None
     installed = set(cp.installed_solvers())
     for s in ("MOSEK", "CLARABEL", "SCS"):
-        if s in installed:
-            return s
+        if s not in installed:
+            continue
+        if s == "MOSEK" and not _mosek_usable():
+            continue
+        return s
     return None
 
 

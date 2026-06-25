@@ -206,7 +206,11 @@ both are now closed in the shared `train._validate_two_matrix` (dense + sparse):
   `optimal` from a trusted interior-point solver (CLARABEL/MOSEK); an SCS fallback or
   `optimal_inaccurate` edge no longer certifies (`island_certified`, `island_solver`,
   `island_status` are reported). With no trusted solver installed the gate cannot
-  return True.
+  return True. `_select_solver` prefers MOSEK → CLARABEL → SCS and **skips an
+  installed-but-unlicensed MOSEK** via a probe solve (`_mosek_usable`), so a dead
+  MOSEK can't silently demote certification to SCS. With both installed, MOSEK solves
+  the degenerate g=1 instances `optimal` natively and the two certifiers agree —
+  L=10: MOSEK [0.69312, 0.71408] vs CLARABEL [0.69307, 0.71408] (~5e-5).
 
 ## Remaining (sharper, future)
 

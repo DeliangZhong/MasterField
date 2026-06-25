@@ -18,6 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "pytest"]
+# MOSEK is an optional, license-gated certifier (academic license required). CLARABEL
+# (a main dep, also bundled with cvxpy) certifies the SDP islands without a license;
+# an installed-but-unlicensed MOSEK is skipped by bootstrap_sdp._select_solver.
+solvers = ["mosek"]
 
 [tool.ruff]
 target-version = "py310"
