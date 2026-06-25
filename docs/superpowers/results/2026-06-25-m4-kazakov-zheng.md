@@ -62,7 +62,14 @@ couplings** — the field it produces there lands **inside the certified KZ isla
 
 So **one network represents the KZ master field across the coupling plane**, and at
 unseen couplings its output is certified inside the rigorous island — the amortized
-M̂(λ) novelty, realized for a two-matrix, two-coupling model. (At max_word_len=2 the
+M̂(λ) novelty, realized for a two-matrix, two-coupling model.
+
+**Phase-structure scan** (`figures/m4_kz_phase.png`): the trained net evaluates the
+whole plane *instantly* — a **676-point (g,h) scan in 8 s** (vs ~80 s *per point* for
+a direct solve). It maps ⟨tr A²⟩/N (largest at weak coupling, decreasing as the
+confining g or h grows) and the non-commutativity ⟨tr[A,B]²⟩/N (most negative at
+small g,h, rising toward 0 as h forces A,B to commute). Spot-checks at (0.35,0.2) and
+(0.6,0.45) land inside the certified island (amortized vs direct agree to ~1e-3). (At max_word_len=2 the
 net also trains to ~1e-8 and generalizes *by residual*, but the moment is non-unique
 there — the wide-island truncation effect, not an amortization failure; this is why
 the validated demo uses max_word_len=3.) Tests: `test_amortized_kz.py` (fast
