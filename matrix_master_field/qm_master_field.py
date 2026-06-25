@@ -137,7 +137,7 @@ def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
     params = field.params_for_free_field()
     opt = optax.adam(lr)
     state = opt.init(params)
-    val_and_grad = jax.value_and_grad(loss_fn)
+    val_and_grad = jax.jit(jax.value_and_grad(loss_fn))
     g = params
     for _ in range(steps):
         _, g = val_and_grad(params)
