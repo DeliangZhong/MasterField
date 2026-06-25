@@ -102,9 +102,15 @@ the research-grade piece is attempted.
 - **Constraints:** (i) $m[\varnothing]=1$; (ii) **stationarity** $\langle[H,\mathrm{Tr}\,w]\rangle=0$
   (T5) — the QM loop equations relating $m[w]$; (iii) **SU(N) Gauss law** (T2),
   $\langle\mathrm{Tr}(G\,\mathcal O)\rangle=0$ — forces the phase-space area that prevents the
-  trivial $E/N^2\ge0$ collapse; (iv) **large-$N$ factorization** of double-trace terms, linearized
-  by a product matrix (the M3 `_bootstrap_two_matrix` device $Q[0,k]=m_k$, $Q\succeq0$); (v)
-  **Gram positivity** $M[u,v]=m[\mathrm{reverse}(u)\cdot v]\succeq0$.
+  trivial $E/N^2\ge0$ collapse; (iv) ~~large-$N$ factorization via a product matrix~~ **— omitted
+  (corrected during execution):** the M3 `_bootstrap_two_matrix` product-matrix device
+  ($Q[0,k]=m_k$, $Q\succeq0$) linearizes the *double-trace* RHS of the *Euclidean* Schwinger–Dyson
+  equations, but the QM stationarity $\langle[H,\mathrm{Tr}\,w]\rangle=0$ is *single-trace* (no
+  double-trace products), so a first-row-anchored product matrix is **vacuous** here — it adds no
+  constraint on the energy, exactly as in M5b's `bootstrap_single_matrix_qm`. (Consequence: the L=4
+  certified lower bound is **loose** — a commuting moment set with $m[[\tilde X,\tilde Y]^2]=0$ is
+  feasible, giving the trivial free floor $2m$; tightening needs higher $L$. See the result doc.)
+  (v) **Gram positivity** $M[u,v]=m[\mathrm{reverse}(u)\cdot v]\succeq0$.
 - **Output:** minimize $E/N^2$ over the feasible set → certified $E_{\rm lo}\le E/N^2$. (Minimizing a
   relaxation gives a lower bound; the *upper* bound must come from a genuine trial state — §C2/§C3.)
 - **Reuse:** `bootstrap_sdp` machinery = M3/M4 two-matrix word handling ⊕ M5b QM momenta + Gauss
@@ -181,7 +187,7 @@ alone (cf. the M3/M4 truncation-artifact lesson, where a moment sat inside a loo
 
 | Module | Role |
 |---|---|
-| `bootstrap_sdp.py` (extend) | `bootstrap_two_matrix_qm(m, lam, L, *, target, maximize, with_status)` — words in $\tilde X,\tilde Y,\tilde P_X,\tilde P_Y$; stationarity (T5) + two-matrix Gauss law (T2) + factorization + Gram PSD; certified bound on $E/N^2$. Helper `_tm_qm_stationarity`. |
+| `bootstrap_sdp.py` (extend) | `bootstrap_two_matrix_qm(m, lam, L, *, target, maximize, with_status)` — words in $\tilde X,\tilde Y,\tilde P_X,\tilde P_Y$; stationarity (T5) + two-matrix Gauss law (T2) + Gram PSD; certified bound on $E/N^2$ (no product matrix — single-trace EOM, see C1(iv)). |
 | `qm_master_field.py` (new) | `free_fisher_information(moments)` (conjugate-variable linear solve + free difference quotient); `gaussian_master_field(m, lam)` (closed-form rigorous upper bound); `fisher_master_field(m, lam, ansatz)` (minimize $\tfrac14\Phi^*+V$ over Cuntz–Fock ops; reuse `sparse_fock`, `ansatz`). |
 | `train.py` (extend) | `solve_two_matrix_qm(m, lam, …)` — SDP lower + Gaussian upper + free-Fisher estimate; fail-closed gate `_tm_qm_gate`. |
 | `derivations/m5c-two-matrix-qm.md` (new) | Discharge T1–T5, each **verified numerically** against the $g{=}0$ exact moments and the M5b 1-matrix limit. |

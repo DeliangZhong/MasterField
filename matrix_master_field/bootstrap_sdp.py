@@ -549,8 +549,10 @@ def bootstrap_two_matrix_qm(m, lam, L=4, *, maximize=False, with_status=False):
     """
     from matrix_master_field.tm_qm_relations import stationarity_terms
     if L < 4:
-        raise ValueError("L>=4 required: the E/N² objective reads length-4 commutator moments "
-                         "m[[X̃,Ỹ]²]; L=4 has only length-0,2 words.")
+        raise ValueError(
+            f"L>=4 required: the E/N² objective reads length-4 commutator moments "
+            f"m[[X̃,Ỹ]²]; got L={L} (L<4 has no length-4 words)."
+        )
     if not HAS_CVXPY:
         return (None, None, None) if with_status else None
 
