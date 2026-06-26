@@ -62,3 +62,23 @@ def test_structure_constants_n2_value():
     f = structure_constants(2)
     # [T_1,T_2]=i sqrt(2) T_3 for Pauli/sqrt(2): f_{123}=sqrt(2)
     assert np.isclose(f[1, 2, 3], np.sqrt(2.0), atol=1e-10)
+
+
+from matrix_master_field.exact_diag import quartic_potential_value
+
+
+def test_quartic_matches_minus_tr_commutator_sq():
+    rng = np.random.default_rng(0)
+    for N in (2, 3):
+        T = hermitian_basis(N)
+        for _ in range(5):
+            x = rng.standard_normal(N * N)
+            y = rng.standard_normal(N * N)
+            X = np.einsum("a,aij->ij", x, T)
+            Y = np.einsum("a,aij->ij", y, T)
+            comm = X @ Y - Y @ X
+            ref = -np.trace(comm @ comm)  # = +sum_c L_c^2, real and >= 0
+            assert abs(ref.imag) < 1e-10
+            val = quartic_potential_value(N, x, y)
+            assert np.isclose(val, ref.real, atol=1e-10)
+            assert val >= -1e-12  # positive (confining)

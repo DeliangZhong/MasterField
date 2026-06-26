@@ -57,3 +57,10 @@ def structure_constants(N):
                 assert abs(val.imag) < 1e-10, "f must be real"
                 f[a, b, c] = val.real
     return f
+
+
+def quartic_potential_value(N, x_vec, y_vec):
+    """sum_c (sum_ab f_abc x_a y_b)^2  ==  -Tr[X,Y]^2 (classical, c-number x,y)."""
+    f = structure_constants(N)
+    L = np.einsum("abc,a,b->c", f, np.asarray(x_vec, float), np.asarray(y_vec, float))
+    return float(np.dot(L, L))
