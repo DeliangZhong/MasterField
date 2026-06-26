@@ -100,12 +100,21 @@ def fisher_master_field(m, lam, *, cutoff=8, degree=2, max_word_len=3,
     training loss = energy + w_sym·(cyclicity + X↔Y exchange + Z₂×Z₂); the reported `energy`
     excludes the penalty, and `sym_loss` reports the residual symmetry violation.
 
-    NOTE (M3 expressiveness lesson): **degree≥3 is required** for a genuinely non-Gaussian
-    estimate at λ>0. The degree-2 ansatz only reaches semicircular states and coincides EXACTLY
-    with the Gaussian/Hartree bound (`gaussian_master_field`); degree-3 drops below it (e.g.
-    m=1, λ=1: 2.322 vs Gaussian 2.365), capturing the non-Gaussian correlations. For a
-    production λ>0 estimate pass `degree=3, cutoff=10`; the `degree=2` default validates the
-    anchor/reduction cleanly (and is what the certified sandwich gate uses at λ=0).
+    ⚠️ TRUNCATION CAVEAT (2026-06-26) — READ BEFORE TRUSTING ANY λ>0 NUMBER. At λ>0 the returned
+    `energy` is NOT a reliable upper bound: Φ*=bᵀG⁻¹b is a *from-below* (under-)estimate of the
+    kinetic energy at finite `max_word_len`, so minimizing `¼Φ*+V` rewards states that EXPLOIT the
+    truncation, and `sym_loss`/`phi_cond` AT THIS BASIS are foolable — a state can look perfectly
+    tracial+well-conditioned at `max_word_len=3` (sym~1e-32) yet have sym~7.7e-5 at `max_word_len=4`
+    and a true energy far higher. So: VALIDATE any λ>0 result by re-evaluating it (traciality,
+    conditioning, energy) at a LARGER `max_word_len` (with `cutoff` raised to match). The
+    "degree-3 beats the Gaussian (2.322<2.365)" claim this once supported did NOT survive that
+    check — it is truncation-sensitive, not a bound. The genuine fix is a direct momentum operator
+    P̂ ([X,P]=i, ⟨P²⟩ computed directly → a true upper bound). At λ=0 the method IS exact (linear
+    conjugate variable). See docs/superpowers/results/2026-06-25-m5c-two-matrix-qm.md.
+
+    (M3 expressiveness note: degree-2 only reaches semicircular states and coincides EXACTLY with
+    the Gaussian; degree-3 differs — but per the caveat above the difference is not a reliable
+    improvement at λ>0.)
 
     Positivity automatic (tracial vacuum). Returns
     dict(energy, m2, comm2, phi_cond, sym_loss, grad_norm, params).

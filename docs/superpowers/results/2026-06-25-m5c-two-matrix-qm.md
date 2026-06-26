@@ -1,4 +1,4 @@
-# M5c result — two-matrix QM: operator master field beats the Gaussian on the unsolvable model
+# M5c result — two-matrix QM: the SDP↔Gaussian sandwich, and a truncation-sensitivity finding for the operator master field
 
 **Date:** 2026-06-25. **Model** (Han–Hartnoll–Kruthoff, arXiv:2004.10212, Eq 17):
 $$H = \mathrm{Tr}\big(P_X^2+P_Y^2+m^2(X^2+Y^2)-g^2[X,Y]^2\big),\qquad [X_{ij},P_{kl}]=i\,\delta_{il}\delta_{jk},\quad \lambda=Ng^2.$$
@@ -34,24 +34,43 @@ Three pieces, each verified, assembled into a fail-closed sandwich (`train.solve
 - **Stationarity + Gauss law** verified to residual $<10^{-10}$ on the exact $g{=}0$ Gaussian
   moments — before the SDP relies on them. (`test_m5c_loop_equations`.)
 
-## The result — the operator master field captures non-Gaussian physics (m=1)
+## The result — at the optimization basis (m=1)
 
-| $\lambda$ | $E_{\rm lo}$ (SDP, certified) | $E_{\rm MF}$ deg-2 | **$E_{\rm MF}$ deg-3** | $E_{\rm hi}$ (Gaussian, rigorous) |
+| $\lambda$ | $E_{\rm lo}$ (SDP, certified) | $E_{\rm MF}$ deg-2 (= Gaussian) | $E_{\rm MF}$ deg-3, mwl-3 | $E_{\rm hi}$ (Gaussian, rigorous) |
 |---|---|---|---|---|
 | 0.0 | **2.0000** | 2.0000 | 2.0000 | **2.0000** |
-| 0.5 | 2.0000 | 2.20688 | **2.18876** | 2.20688 |
-| 1.0 | 2.0000 | 2.36452 | **2.32181** | 2.36452 |
+| 0.5 | 2.0000 | 2.20688 | 2.18876 | 2.20688 |
+| 1.0 | 2.0000 | 2.36452 | 2.32181 | 2.36452 |
 
-**The headline.** At **degree 3** the free-Fisher operator master field drops *strictly below* the
-Gaussian/Hartree bound — by 0.8% at $\lambda{=}0.5$ and 1.8% at $\lambda{=}1$, the gap growing with
-the coupling — capturing the non-Gaussian correlations the Hartree approximation cannot
-($\mathrm{sym\_loss}\sim10^{-29}$, $\mathrm{grad}\sim10^{-4}$, $\mathrm{cond}\sim40$ throughout).
-This is the project thesis realized on an unsolvable model: an ML operator field beats mean-field.
+At the optimization basis (degree-3, `max_word_len=3`) the free-Fisher field's energy sits *below*
+the Gaussian (e.g. 2.32 vs 2.365 at $\lambda{=}1$), and degree-2 coincides with the Gaussian exactly
+(the M3 expressiveness lesson). **But this "beats the Gaussian" does NOT survive higher-basis
+scrutiny** — see the next section. Only the $\lambda{=}0$ anchor (`E/N²=2m`, exact) is solid on the
+operator-field side.
 
-**The M3 expressiveness lesson, reconfirmed.** At **degree 2** the Cuntz–Fock ansatz only reaches
-semicircular states, so $E_{\rm MF}$ coincides with the Gaussian *exactly* (to $10^{-5}$). Degree-3
-is required for a genuinely non-Gaussian estimate at $\lambda>0$ — exactly the degree-2→degree-3
-finding from the M3 matrix-integral work. (`test_fisher_beats_gaussian_at_degree3`.)
+### ⚠️ The λ>0 free-Fisher estimate is truncation-sensitive (post-hoc finding, 2026-06-26)
+
+A careful convergence study overturned the headline above:
+- The energy is `¼Φ*_trunc + V` with `Φ*=bᵀG⁻¹b` a **from-below** (under-)estimate of the kinetic
+  energy. Minimizing it **rewards states that exploit the truncation**, and the
+  traciality/conditioning checks *at the optimization basis* are fooled.
+- The committed single-init `2.32` looks perfect at mwl-3 (`sym~1e-32`, `cond~42`) but its
+  traciality **degrades to `sym=7.7e-5`** when re-checked at mwl-4 (properly provisioned, above the
+  `1e-6` gate); a fresh mwl-4 optimization behaves identically (`2.322`, `sym=6.7e-5`).
+- Aggressive multi-restart + traciality annealing finds "lower" states (2.05–2.22) that are
+  **unambiguous artifacts**: at a higher basis their conditioning blows up (`cond → 1e4–1e10`),
+  traciality collapses (`sym → 1e-3–1`), and their true energies are *above* the Gaussian (3.9–4.7).
+  The optimizer exploits the from-below `Φ*` + a fooled symmetry check + a near-singular Gram at once.
+
+**Conclusion:** the operator master field's "beats the Gaussian" claim is **not robust** at the
+couplings/bases we can afford; `E_MF≈2.32` is a **truncation-sensitive estimate**, not a bound. The
+reliable bracket at $\lambda{=}1$ is `E/N² ∈ [2.0 (SDP, certified), 2.365 (Gaussian, rigorous)]`. (At
+$\lambda{=}0$ the method is exact — the conjugate variable is linear and captured at any basis.)
+
+**Lesson:** truncated free-Fisher functionals are prone to truncation artifacts under optimization;
+validation MUST re-check traciality, conditioning, and Fisher-stability at a basis *larger* than the
+one optimized on. The committed gate (`cond_max=1e8`, traciality at the optimization basis) is
+insufficient. The real fix is to stop using the from-below `Φ*` for the energy — see Status.
 
 ## Honest limitations (the open items)
 
@@ -62,20 +81,28 @@ finding from the M3 matrix-integral work. (`test_fisher_beats_gaussian_at_degree
   *non-trivial* certified lower bound needs higher $L$ (and cyclicity canonicalization to make that
   affordable) — the main open item. (Note: the M3-style large-$N$ product matrix does **not** apply
   here — the QM stationarity is single-trace, so it is vacuous; spec C1(iv) corrected.)
-- **$E_{\rm MF}$ is a sharp *estimate*, not a certified bound.** Truncating the conjugate-variable
-  basis makes $\tfrac14\Phi^*$ a from-below estimate of the kinetic energy, so $E_{\rm MF}$
-  approaches the variational value from below as the basis grows. The *rigorous* bracket is
-  $[E_{\rm lo}\,(\text{SDP}),\,E_{\rm hi}\,(\text{Gaussian})]$; $E_{\rm MF}$ is the sharp non-Gaussian
-  number inside it. So the most one can say rigorously at $\lambda{=}1$ is $E/N^2\in[2.0,\,2.365]$,
-  with the operator field estimating $\approx2.32$.
+- **$E_{\rm MF}$ at $\lambda>0$ is truncation-sensitive, not a bound** — see the ⚠️ section above.
+  The rigorous bracket is $[E_{\rm lo}\,(\text{SDP}),\,E_{\rm hi}\,(\text{Gaussian})]=[2.0,\,2.365]$
+  at $\lambda{=}1$; the free-Fisher value ($\approx2.32$) does not survive higher-basis validation,
+  so it is reported as an unreliable estimate, not as the rigorous interior number it was first
+  claimed to be.
 - **HHK referee (T3) not extracted.** HHK's $\lambda>0$ numbers live in their Fig. 3 (a figure);
   matching them was scoped as a soft cross-check and is not done. Our external validation is the
   exact $\lambda{=}0$ anchor + the internal SDP↔Gaussian bracket.
 
 ## Status
-M5c is **complete as a demonstration**: the operator master field is built, verified (anchor,
-$\Phi^*$ reduction, loop/Gauss relations), and **shown to beat the Gaussian** on the unsolvable
-two-matrix QM at degree 3 — the genuine novel result. The rigorous *lower* half of the sandwich is
-trivial at $L{=}4$ (honest limitation; tightening is the natural M5c follow-up). Suite: full package
-105 passed + 7 slow-gated; M5c slow 10/10. Spec + plan: `docs/superpowers/specs/` and `plans/`
-(both adversarially audited and revised). Next milestone: BFSS/BMN.
+M5c built the full sandwich and verified its trust roots (the $\lambda{=}0$ anchor, the $\Phi^*$
+reduction, the loop/Gauss relations to $<10^{-10}$). **Correction (2026-06-26):** the headline
+"operator master field beats the Gaussian at $\lambda>0$" did **not** survive higher-basis scrutiny
+— it is a truncation-sensitive estimate (the ⚠️ section), not a robust result. The honest
+deliverables are: (i) the certified SDP lower bound $E_{\rm lo}=2m$ (trivial at $L{=}4$, but the
+machinery is correct and verified); (ii) the rigorous Gaussian upper bound $E_{\rm hi}$; (iii) the
+methodological finding that the from-below $\Phi^*$ functional is exploitable and needs higher-basis
+validation.
+
+**Path to a genuine operator master field** (the real follow-up, in progress): replace the
+from-below $\Phi^*$ with an explicit momentum operator $\hat P$ satisfying $[X,P]=i$, so
+$\langle P^2\rangle$ is computed *directly* and $\langle H\rangle$ is a true variational **upper**
+bound that cannot be exploited downward (the spec's deferred "Approach 2"). That is the formulation
+that could legitimately beat the Gaussian. Suite: full package 105 passed + 8 slow-gated (the M5c
+slow tests assert the reproducible mwl-3 behavior — but carry the truncation caveat). Then: BFSS/BMN.

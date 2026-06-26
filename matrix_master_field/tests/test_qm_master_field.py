@@ -106,11 +106,15 @@ def test_fisher_master_field_anchor_lambda0():
 
 @pytest.mark.skipif(not os.environ.get("MMF_SLOW"),
                     reason="slow: Cuntz–Fock optimization; set MMF_SLOW=1")
-def test_fisher_beats_gaussian_at_degree3():
-    # M5c KEY RESULT: at degree-3 the free-Fisher operator field captures non-Gaussian
-    # correlations and drops BELOW the Gaussian/Hartree bound for λ>0. The degree-2 ansatz
-    # only reaches semicircular states and coincides with the Gaussian EXACTLY (the M3
-    # expressiveness lesson). m=1, λ=1.
+def test_fisher_degree3_below_gaussian_at_mwl3():
+    # Documents a REPRODUCIBLE mwl-3 fact: at the optimization basis (degree-3, max_word_len=3)
+    # the free-Fisher energy sits below the Gaussian, and degree-2 ≡ Gaussian exactly (M3
+    # expressiveness). m=1, λ=1.
+    # ⚠️ NOT a robust result: this "below-Gaussian" is TRUNCATION-SENSITIVE — Φ* is a from-below
+    # under-estimate and these checks are foolable at this basis (the deg-3 state degrades to
+    # sym~7.7e-5 at max_word_len=4; aggressive optimization finds clear artifacts). It does NOT
+    # establish that the master field beats the Gaussian. See the fisher_master_field truncation
+    # caveat + docs/superpowers/results/2026-06-25-m5c-two-matrix-qm.md.
     from matrix_master_field.qm_master_field import fisher_master_field, gaussian_master_field
     e_hi = gaussian_master_field(1.0, 1.0)["energy"]            # rigorous Gaussian upper bound
 
@@ -118,8 +122,8 @@ def test_fisher_beats_gaussian_at_degree3():
     assert abs(deg2["energy"] - e_hi) < 1e-4                    # degree-2 ≡ Gaussian (under-expressive)
 
     deg3 = fisher_master_field(1.0, 1.0, cutoff=10, degree=3, max_word_len=3, steps=2500)
-    assert deg3["energy"] < e_hi - 2e-2                         # non-Gaussian estimate beats Hartree
-    assert deg3["energy"] > 2.0                                 # ...stays above the free floor
+    assert deg3["energy"] < e_hi - 2e-2                         # below Gaussian at mwl3 (truncation-sensitive — NOT a bound)
+    assert deg3["energy"] > 2.0                                 # ...stays above the certified SDP floor
     assert deg3["sym_loss"] < 1e-6                              # traciality maintained
     assert deg3["grad_norm"] < 1e-3                            # optimizer converged
     assert deg3["phi_cond"] < 1e8                              # Gram well-conditioned
