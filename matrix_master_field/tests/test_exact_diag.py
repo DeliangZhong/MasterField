@@ -8,6 +8,7 @@ import scipy.sparse as sp
 from matrix_master_field.exact_diag import (
     build_two_matrix_qm_hamiltonian,
     fock_ladder_ops,
+    ground_energy,
     hermitian_basis,
     occupation_basis,
     quartic_potential_value,
@@ -159,3 +160,21 @@ def test_hamiltonian_quartic_is_psd_shift():
     Hg = build_two_matrix_qm_hamiltonian(N, m, 0.9, K).toarray()
     w = np.linalg.eigvalsh(Hg - H0)
     assert w.min() > -1e-9
+
+
+def test_g0_anchor_exact_all_N_K():
+    # g=0 => E/N^2 = 2m exactly, any N, any K (the hard check, V2)
+    for N, K in [(2, 2), (2, 5), (3, 2), (3, 3)]:
+        res = ground_energy(N, m=1.0, g=0.0, K=K)
+        assert np.isclose(res["E_over_N2"], 2.0, atol=1e-9)
+        assert res["basis_dim"] == comb(K + 2 * (N * N - 1), 2 * (N * N - 1))
+
+
+def test_g0_anchor_scales_with_m():
+    res = ground_energy(2, m=1.7, g=0.0, K=3)
+    assert np.isclose(res["E_over_N2"], 2 * 1.7, atol=1e-9)
+
+
+def test_ground_energy_above_2m_when_interacting():
+    res = ground_energy(2, m=1.0, g=0.8, K=6)
+    assert res["E_over_N2"] >= 2.0 - 1e-9  # Rayleigh-Ritz: E_trunc >= E_true >= 2m

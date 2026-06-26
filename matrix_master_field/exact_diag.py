@@ -15,6 +15,7 @@ Conventions are pinned in the plan's Global Constraints and CONVENTIONS.md. Floa
 """
 import numpy as np
 import scipy.sparse as sp
+import scipy.sparse.linalg as spla
 
 
 def occupation_basis(n_modes, K):
@@ -159,3 +160,38 @@ def build_two_matrix_qm_hamiltonian(N, m, g, K, pad=2):
     H = H.tocsr()[keep][:, keep]
     H = 0.5 * (H + H.transpose())
     return H.tocsr()
+
+
+def ground_energy(N, m, g, K):
+    """Ground-state energy density E/N^2 of the two-matrix QM by exact diagonalization.
+
+    The interacting Hamiltonian H covers the 2(N^2-1) traceless modes (truncated to total
+    quanta <= K). The two trace modes each contribute m (their zero-point energy) analytically,
+    so E = E_interacting + 2m.
+
+    Eigensolver: dense np.linalg.eigh when D < 50 (avoids Lanczos failures on tiny matrices),
+    otherwise sparse eigsh(k=1, which='SA') with a fixed v0=ones/sqrt(D) for reproducibility.
+    The ground-state vector is returned in occupation_basis(2(N^2-1), K) order (canonical order
+    produced by build_two_matrix_qm_hamiltonian), as required by Task 8 (Casimir).
+    """
+    H = build_two_matrix_qm_hamiltonian(N, m, g, K)
+    D = H.shape[0]
+    if D < 50:
+        w, v = np.linalg.eigh(H.toarray())
+        e_int = float(w[0])
+        gs = v[:, 0]
+    else:
+        v0 = np.ones(D) / np.sqrt(D)
+        vals, vecs = spla.eigsh(H, k=1, which="SA", v0=v0)
+        e_int = float(vals[0])
+        gs = vecs[:, 0]
+    E = e_int + 2.0 * m   # two trace modes, each ground energy m
+    return {
+        "E_over_N2": E / (N * N),
+        "E": E,
+        "E_interacting": e_int,
+        "K": K,
+        "basis_dim": D,
+        "n_modes": 2 * (N * N - 1),
+        "ground_state": np.asarray(gs, dtype=np.float64),
+    }
