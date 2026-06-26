@@ -6,6 +6,7 @@ import pytest
 import scipy.sparse as sp
 
 from matrix_master_field.exact_diag import (
+    build_two_matrix_qm_hamiltonian,
     fock_ladder_ops,
     hermitian_basis,
     occupation_basis,
@@ -132,3 +133,29 @@ def test_ladder_lowers_one_quantum():
             tgt = occ[r].copy(); tgt[0] -= 1
             rt = index[tuple(tgt)]
             assert np.isclose(a0[rt, r], np.sqrt(occ[r, 0]), atol=1e-12)
+
+
+def test_hamiltonian_hermitian_and_dim():
+    N, m, K = 2, 1.0, 3
+    H = build_two_matrix_qm_hamiltonian(N, m, g=0.7, K=K)
+    n_modes = 2 * (N * N - 1)
+    assert H.shape[0] == comb(K + n_modes, n_modes)
+    assert abs((H - H.transpose()).max()) < 1e-12  # real symmetric
+
+
+def test_hamiltonian_g0_is_diagonal_free_spectrum():
+    # g=0: H_interacting diagonal, lowest entry = m * 2(N^2-1) (all interacting modes n=0)
+    N, m, K = 2, 1.0, 4
+    H = build_two_matrix_qm_hamiltonian(N, m, g=0.0, K=K).toarray()
+    n_int = 2 * (N * N - 1)
+    assert np.allclose(H - np.diag(np.diag(H)), 0.0, atol=1e-12)
+    assert np.isclose(np.min(np.diag(H)), m * n_int, atol=1e-12)
+
+
+def test_hamiltonian_quartic_is_psd_shift():
+    # the quartic g^2 sum_c L_c^2 is PSD: H(g) - H(0) has nonnegative eigenvalues
+    N, m, K = 2, 1.0, 3
+    H0 = build_two_matrix_qm_hamiltonian(N, m, 0.0, K).toarray()
+    Hg = build_two_matrix_qm_hamiltonian(N, m, 0.9, K).toarray()
+    w = np.linalg.eigvalsh(Hg - H0)
+    assert w.min() > -1e-9

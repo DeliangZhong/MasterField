@@ -109,3 +109,55 @@ def quartic_potential_value(N, x_vec, y_vec):
     f = structure_constants(N)
     L = np.einsum("abc,a,b->c", f, np.asarray(x_vec, float), np.asarray(y_vec, float))
     return float(np.dot(L, L))
+
+
+def build_two_matrix_qm_hamiltonian(N, m, g, K):
+    """Interacting H over the 2(N^2-1)-mode Fock space (trace 2m added by ground_energy).
+
+    H = m*(2*sum_i n_i + n_modes) + g^2 * sum_c L_c^2
+    where L_c = sum_{a,b=1}^{N^2-1} f[a,b,c] x_a y_b,
+    x_a = (ops[a-1] + ops[a-1]^dag) / sqrt(2m),
+    y_b = (ops[n_tl+(b-1)] + ops[n_tl+(b-1)]^dag) / sqrt(2m).
+
+    Mode layout: x-modes a=1..n_tl -> ladder slot a-1; y-modes b=1..n_tl -> slot n_tl+(b-1).
+    """
+    n_tl = N * N - 1            # traceless modes per matrix
+    n_modes = 2 * n_tl
+    occ, ops = fock_ladder_ops(n_modes, K)
+    s2m = np.sqrt(2.0 * m)
+
+    def x_op(a):  # a = 1..n_tl
+        A = ops[a - 1]
+        return (A + A.transpose()) / s2m
+
+    def y_op(b):  # b = 1..n_tl
+        A = ops[n_tl + (b - 1)]
+        return (A + A.transpose()) / s2m
+
+    # free part: m * (2 sum n_i + n_modes), diagonal
+    total = occ.sum(axis=1)
+    H = sp.diags(m * (2.0 * total + n_modes), format="csr", dtype=np.float64)
+
+    if g != 0.0:
+        f = structure_constants(N)
+        xs = [None] + [x_op(a) for a in range(1, n_tl + 1)]
+        ys = [None] + [y_op(b) for b in range(1, n_tl + 1)]
+        for c in range(1, n_tl + 1):
+            terms = []
+            for a in range(1, n_tl + 1):
+                for b in range(1, n_tl + 1):
+                    fabc = f[a, b, c]
+                    if fabc != 0.0:
+                        terms.append(fabc * (xs[a] @ ys[b]))
+            if terms:
+                Lc = terms[0]
+                for t in terms[1:]:
+                    Lc = Lc + t
+                # Symmetrize: in exact theory [x_a, y_b]=0 so L_c is Hermitian;
+                # truncation breaks this at the K-quanta boundary.
+                # Use (L_c + L_c^dag)/2 to restore Hermiticity before squaring.
+                Lc = 0.5 * (Lc + Lc.transpose())
+                H = H + (g * g) * (Lc @ Lc)
+
+    H = 0.5 * (H + H.transpose())
+    return H.tocsr()
