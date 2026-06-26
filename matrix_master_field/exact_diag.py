@@ -111,37 +111,33 @@ def quartic_potential_value(N, x_vec, y_vec):
     return float(np.dot(L, L))
 
 
-def build_two_matrix_qm_hamiltonian(N, m, g, K):
-    """Interacting H over the 2(N^2-1)-mode Fock space (trace 2m added by ground_energy).
+def build_two_matrix_qm_hamiltonian(N, m, g, K, pad=2):
+    """Exact Galerkin projection P_K H P_K of the interacting H over the 2(N^2-1)-mode Fock
+    space, truncated to total quanta <= K (the 2m trace contribution is added by ground_energy).
 
-    H = m*(2*sum_i n_i + n_modes) + g^2 * sum_c L_c^2
-    where L_c = sum_{a,b=1}^{N^2-1} f[a,b,c] x_a y_b,
-    x_a = (ops[a-1] + ops[a-1]^dag) / sqrt(2m),
-    y_b = (ops[n_tl+(b-1)] + ops[n_tl+(b-1)]^dag) / sqrt(2m).
-
-    Mode layout: x-modes a=1..n_tl -> ladder slot a-1; y-modes b=1..n_tl -> slot n_tl+(b-1).
+    L_c = sum_ab f_abc x_a y_b is Hermitian in the FULL space (x_a, y_b act on disjoint mode
+    sets). Building it from K-truncated operators introduces a spurious middle projector that
+    breaks Hermiticity at the boundary and makes L_c^2 non-PSD. Fix (as in qm_fock.py): build on
+    the padded (K+pad) basis so the quartic's intermediates (total <= K+2) are represented, then
+    restrict to the canonical total<=K basis. The <=K block of L_c^2-built-on-(K+pad) equals
+    P_K L_c^2 P_K exactly -> Hermitian, PSD, variational upper bound monotone in K. pad=2 suffices.
+    Returned H is ordered to match occupation_basis(n_modes, K) so ground_energy/casimir agree.
     """
-    n_tl = N * N - 1            # traceless modes per matrix
+    n_tl = N * N - 1
     n_modes = 2 * n_tl
-    occ, ops = fock_ladder_ops(n_modes, K)
+    Kp = K + pad
+
+    occ_p, ops_p = fock_ladder_ops(n_modes, Kp)
     s2m = np.sqrt(2.0 * m)
+    xs = [None] + [(ops_p[a - 1] + ops_p[a - 1].transpose()) / s2m for a in range(1, n_tl + 1)]
+    ys = [None] + [(ops_p[n_tl + (b - 1)] + ops_p[n_tl + (b - 1)].transpose()) / s2m
+                   for b in range(1, n_tl + 1)]
 
-    def x_op(a):  # a = 1..n_tl
-        A = ops[a - 1]
-        return (A + A.transpose()) / s2m
-
-    def y_op(b):  # b = 1..n_tl
-        A = ops[n_tl + (b - 1)]
-        return (A + A.transpose()) / s2m
-
-    # free part: m * (2 sum n_i + n_modes), diagonal
-    total = occ.sum(axis=1)
-    H = sp.diags(m * (2.0 * total + n_modes), format="csr", dtype=np.float64)
+    total_p = occ_p.sum(axis=1)
+    H = sp.diags(m * (2.0 * total_p + n_modes), format="csr", dtype=np.float64)
 
     if g != 0.0:
         f = structure_constants(N)
-        xs = [None] + [x_op(a) for a in range(1, n_tl + 1)]
-        ys = [None] + [y_op(b) for b in range(1, n_tl + 1)]
         for c in range(1, n_tl + 1):
             terms = []
             for a in range(1, n_tl + 1):
@@ -153,11 +149,13 @@ def build_two_matrix_qm_hamiltonian(N, m, g, K):
                 Lc = terms[0]
                 for t in terms[1:]:
                     Lc = Lc + t
-                # Symmetrize: in exact theory [x_a, y_b]=0 so L_c is Hermitian;
-                # truncation breaks this at the K-quanta boundary.
-                # Use (L_c + L_c^dag)/2 to restore Hermiticity before squaring.
-                Lc = 0.5 * (Lc + Lc.transpose())
                 H = H + (g * g) * (Lc @ Lc)
 
+    occ_K = occupation_basis(n_modes, K)
+    base_p = Kp + 1
+    idx_p = {_radix_key(occ_p[r], base_p): r for r in range(occ_p.shape[0])}
+    keep = np.array([idx_p[_radix_key(occ_K[t], base_p)] for t in range(occ_K.shape[0])],
+                    dtype=np.int64)
+    H = H.tocsr()[keep][:, keep]
     H = 0.5 * (H + H.transpose())
     return H.tocsr()
