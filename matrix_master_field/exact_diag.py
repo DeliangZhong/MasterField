@@ -14,6 +14,51 @@ modes add 2m analytically). See docs/superpowers/specs/2026-06-26-m5c-exact-diag
 Conventions are pinned in the plan's Global Constraints and CONVENTIONS.md. Float64 throughout.
 """
 import numpy as np
+import scipy.sparse as sp
+
+
+def occupation_basis(n_modes, K):
+    """All occupation tuples (n_0,...,n_{n_modes-1}), n_i>=0, sum n_i <= K."""
+    rows = []
+
+    def rec(prefix, remaining):
+        if len(prefix) == n_modes:
+            rows.append(prefix)
+            return
+        for v in range(remaining + 1):
+            rec(prefix + (v,), remaining - v)
+
+    rec((), K)
+    return np.array(rows, dtype=np.int64)
+
+
+def _radix_key(occ_row, base):
+    """Mixed-radix integer encoding of an occupation row (base = K+1) for O(1) lookup."""
+    key = 0
+    for v in occ_row[::-1]:
+        key = key * base + int(v)
+    return key
+
+
+def fock_ladder_ops(n_modes, K):
+    """(occ, ops): occupation basis and sparse annihilation operators a_i (a_i^dag = ops[i].T)."""
+    occ = occupation_basis(n_modes, K)
+    D = occ.shape[0]
+    base = K + 1
+    index = {_radix_key(occ[r], base): r for r in range(D)}
+    ops = []
+    for i in range(n_modes):
+        rows, cols, data = [], [], []
+        for c in range(D):
+            ni = occ[c, i]
+            if ni > 0:
+                tgt = occ[c].copy()
+                tgt[i] -= 1
+                rows.append(index[_radix_key(tgt, base)])
+                cols.append(c)
+                data.append(np.sqrt(float(ni)))
+        ops.append(sp.csr_matrix((data, (rows, cols)), shape=(D, D), dtype=np.float64))
+    return occ, ops
 
 
 def hermitian_basis(N):

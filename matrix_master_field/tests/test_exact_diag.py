@@ -1,8 +1,17 @@
 # matrix_master_field/tests/test_exact_diag.py
+from math import comb
+
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
-from matrix_master_field.exact_diag import hermitian_basis, structure_constants
+from matrix_master_field.exact_diag import (
+    fock_ladder_ops,
+    hermitian_basis,
+    occupation_basis,
+    quartic_potential_value,
+    structure_constants,
+)
 
 
 def _commutator(A, B):
@@ -64,9 +73,6 @@ def test_structure_constants_n2_value():
     assert np.isclose(f[1, 2, 3], np.sqrt(2.0), atol=1e-10)
 
 
-from matrix_master_field.exact_diag import quartic_potential_value
-
-
 def test_quartic_matches_minus_tr_commutator_sq():
     rng = np.random.default_rng(0)
     for N in (2, 3):
@@ -82,3 +88,47 @@ def test_quartic_matches_minus_tr_commutator_sq():
             val = quartic_potential_value(N, x, y)
             assert np.isclose(val, ref.real, atol=1e-10)
             assert val >= -1e-12  # positive (confining)
+
+
+def test_occupation_basis_size_and_bound():
+    for n_modes, K in [(6, 4), (3, 5), (2, 7)]:
+        occ = occupation_basis(n_modes, K)
+        assert occ.shape == (comb(K + n_modes, n_modes), n_modes)
+        assert occ.sum(axis=1).max() <= K
+        assert occ.min() >= 0
+        # all rows distinct
+        assert len({tuple(r) for r in occ}) == occ.shape[0]
+
+
+def test_ladder_commutator_interior():
+    n_modes, K = 3, 5
+    occ, ops = fock_ladder_ops(n_modes, K)
+    D = occ.shape[0]
+    for i in range(n_modes):
+        a = ops[i]
+        adag = a.transpose()
+        comm = (a @ adag - adag @ a).toarray()
+        # [a_i, a_i^dag] = 1 on states with total quanta < K (interior, not truncated)
+        for r in range(D):
+            if occ[r].sum() < K:
+                assert np.isclose(comm[r, r], 1.0, atol=1e-12)
+
+
+def test_number_operator_eigenvalues():
+    n_modes, K = 4, 4
+    occ, ops = fock_ladder_ops(n_modes, K)
+    for i in range(n_modes):
+        num = (ops[i].transpose() @ ops[i]).diagonal()
+        assert np.allclose(num, occ[:, i], atol=1e-12)
+
+
+def test_ladder_lowers_one_quantum():
+    n_modes, K = 2, 3
+    occ, ops = fock_ladder_ops(n_modes, K)
+    index = {tuple(occ[r]): r for r in range(occ.shape[0])}
+    a0 = ops[0]
+    for r in range(occ.shape[0]):
+        if occ[r, 0] > 0:
+            tgt = occ[r].copy(); tgt[0] -= 1
+            rt = index[tuple(tgt)]
+            assert np.isclose(a0[rt, r], np.sqrt(occ[r, 0]), atol=1e-12)
