@@ -162,6 +162,16 @@ def build_two_matrix_qm_hamiltonian(N, m, g, K, pad=2):
     return H.tocsr()
 
 
+def converge_in_K(N, m, g, K_list):
+    """E/N^2 vs truncation K (variational, non-increasing). Returns series, value, tail."""
+    series = []
+    for K in K_list:
+        series.append((K, ground_energy(N, m, g, K)["E_over_N2"]))
+    vals = [e for _, e in series]
+    tail = abs(vals[-1] - vals[-2]) if len(vals) >= 2 else float("inf")
+    return {"series": series, "value": vals[-1], "tail": tail}
+
+
 def ground_energy(N, m, g, K):
     """Ground-state energy density E/N^2 of the two-matrix QM by exact diagonalization.
 

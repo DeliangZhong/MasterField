@@ -7,6 +7,7 @@ import scipy.sparse as sp
 
 from matrix_master_field.exact_diag import (
     build_two_matrix_qm_hamiltonian,
+    converge_in_K,
     fock_ladder_ops,
     ground_energy,
     hermitian_basis,
@@ -178,3 +179,23 @@ def test_g0_anchor_scales_with_m():
 def test_ground_energy_above_2m_when_interacting():
     res = ground_energy(2, m=1.0, g=0.8, K=6)
     assert res["E_over_N2"] >= 2.0 - 1e-9  # Rayleigh-Ritz: E_trunc >= E_true >= 2m
+
+
+def test_K_convergence_monotone_and_settles():
+    # variational in K: E/N^2(K) non-increasing (Rayleigh-Ritz, rigorous), and the
+    # successive gaps shrink -- the signature of convergence (V3). N=2, lambda=1.
+    N, m = 2, 1.0
+    g = np.sqrt(1.0 / N)  # lambda = N g^2 = 1
+    out = converge_in_K(N, m, g, K_list=[4, 6, 8, 10])
+    vals = [e for _, e in out["series"]]
+    for lo, hi in zip(vals[1:], vals[:-1]):
+        assert lo <= hi + 1e-9          # non-increasing (guaranteed)
+    assert vals[-1] >= 2.0 - 1e-9       # still >= 2m (guaranteed)
+    gaps = [abs(b - a) for a, b in zip(vals[:-1], vals[1:])]
+    assert gaps[-1] <= gaps[0] + 1e-12  # converging: last gap no larger than the first
+    assert out["tail"] == pytest.approx(gaps[-1], abs=1e-12)
+
+
+def test_K_convergence_g0_flat_at_2m():
+    out = converge_in_K(2, 1.0, 0.0, K_list=[2, 4, 6])
+    assert all(np.isclose(e, 2.0, atol=1e-9) for _, e in out["series"])
