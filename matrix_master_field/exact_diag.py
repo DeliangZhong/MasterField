@@ -16,6 +16,7 @@ Conventions are pinned in the plan's Global Constraints and CONVENTIONS.md. Floa
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
+from scipy.optimize import minimize_scalar
 
 
 def occupation_basis(n_modes, K):
@@ -205,3 +206,33 @@ def ground_energy(N, m, g, K):
         "n_modes": 2 * (N * N - 1),
         "ground_state": np.asarray(gs, dtype=np.float64),
     }
+
+
+def gaussian_upper(N, m, g):
+    """Same-N frequency-optimized diagonal Gaussian: a rigorous finite-N upper bound on E/N^2.
+
+    Trial = product of frequency-omega oscillator ground states on the 2(N^2-1) interacting
+    modes (trace modes optimal at omega=m -> 2m). <p^2+m^2 x^2> = (omega+m^2/omega)/2 per mode;
+    <L_c^2> = sum_ab f_abc^2 /(4 omega^2) so the interaction is g^2 S_f/(4 omega^2).
+
+    E(omega) = 2m + (N^2-1)(omega + m^2/omega) + g^2 * S_f / (4 omega^2),
+    S_f = sum_{a,b,c>=1} f_abc^2   (traceless block only).
+
+    Minimized over omega > 0 gives a rigorous variational upper bound. At g=0, the minimum
+    is omega=m and E/N^2=2m exactly (both trace modes accounted analytically).
+
+    Returns dict with keys: E_over_N2, E, omega.
+    """
+    f = structure_constants(N)
+    S_f = float(np.sum(f[1:, 1:, 1:] ** 2))
+    n_tl = N * N - 1
+
+    def E_of_omega(w):
+        return 2.0 * m + n_tl * (w + m * m / w) + (g * g) * S_f / (4.0 * w * w)
+
+    res = minimize_scalar(
+        E_of_omega, bounds=(1e-6, 100.0 * max(m, 1.0)), method="bounded"
+    )
+    w = float(res.x)
+    E = E_of_omega(w)
+    return {"E_over_N2": E / (N * N), "E": E, "omega": w}

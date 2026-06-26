@@ -9,6 +9,7 @@ from matrix_master_field.exact_diag import (
     build_two_matrix_qm_hamiltonian,
     converge_in_K,
     fock_ladder_ops,
+    gaussian_upper,
     ground_energy,
     hermitian_basis,
     occupation_basis,
@@ -199,3 +200,20 @@ def test_K_convergence_monotone_and_settles():
 def test_K_convergence_g0_flat_at_2m():
     out = converge_in_K(2, 1.0, 0.0, K_list=[2, 4, 6])
     assert all(np.isclose(e, 2.0, atol=1e-9) for _, e in out["series"])
+
+
+def test_gaussian_g0_is_2m():
+    for N in (2, 3):
+        out = gaussian_upper(N, m=1.0, g=0.0)
+        assert np.isclose(out["E_over_N2"], 2.0, atol=1e-9)
+        assert np.isclose(out["omega"], 1.0, atol=1e-6)  # optimal omega = m at g=0
+
+
+def test_v4a_bracket_finite_N():
+    # 2m <= E_exact(converged K) <= same-N Gaussian, for g>0, N=2, lambda=1 (V4a)
+    N, m = 2, 1.0
+    g = np.sqrt(1.0 / N)
+    e_exact = converge_in_K(N, m, g, K_list=[8, 10, 12])["value"]
+    e_gauss = gaussian_upper(N, m, g)["E_over_N2"]
+    assert 2.0 - 1e-9 <= e_exact
+    assert e_exact <= e_gauss + 1e-6   # converged exact sits below the same-N Gaussian
