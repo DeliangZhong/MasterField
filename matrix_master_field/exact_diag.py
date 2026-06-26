@@ -208,6 +208,44 @@ def ground_energy(N, m, g, K):
     }
 
 
+def casimir_of_ground_state(N, m, g, K, ground_state=None):
+    """sum_A <G_A^2> on the ground state (SU(N) Casimir); ~0 iff singlet (V5).
+
+    G_A = -i sum_bc f_Abc (a_dag_b a_c + b_dag_b b_c) is the U(N) adjoint generator in
+    NUMBER-CONSERVING ladder form (the a_b a_c and a_dag_b a_dag_c pieces of the equivalent
+    x_b p_c form cancel against antisymmetric f). Because it conserves total quanta, it maps the
+    total<=K space to itself with NO boundary truncation artifact (the x_b p_c form's a_b a_dag_c
+    piece would be truncated at the boundary). G_A is Hermitian, so <G_A^2> = ||G_A psi||^2.
+    Total-quanta truncation preserves SU(N) ([G_A, N_total]=0), so the truncated ground state is
+    an exact SU(N) eigenstate and a singlet gives ~0 to eigensolver precision. m is unused by the
+    generator (mode rotation is frequency-independent); it only feeds ground_energy when no state
+    is supplied. x-sector ladders = slots 0..n_tl-1; y-sector = slots n_tl..2n_tl-1.
+    """
+    n_tl = N * N - 1
+    n_modes = 2 * n_tl
+    occ, ops = fock_ladder_ops(n_modes, K)
+    D = occ.shape[0]
+    f = structure_constants(N)
+
+    if ground_state is None:
+        ground_state = ground_energy(N, m, g, K)["ground_state"]
+    psi = np.asarray(ground_state, dtype=np.complex128)
+
+    c2 = 0.0
+    for A in range(1, n_tl + 1):
+        GA = sp.csr_matrix((D, D), dtype=np.complex128)
+        for b in range(1, n_tl + 1):
+            for c in range(1, n_tl + 1):
+                fac = f[A, b, c]
+                if fac != 0.0:
+                    x_term = ops[b - 1].transpose() @ ops[c - 1]                    # a_dag_b a_c
+                    y_term = ops[n_tl + (b - 1)].transpose() @ ops[n_tl + (c - 1)]  # b_dag_b b_c
+                    GA = GA + (-1j * fac) * (x_term + y_term)
+        v = GA @ psi
+        c2 += float(np.real(np.vdot(v, v)))
+    return c2
+
+
 def gaussian_upper(N, m, g):
     """Same-N frequency-optimized diagonal Gaussian: a rigorous finite-N upper bound on E/N^2.
 

@@ -7,6 +7,7 @@ import scipy.sparse as sp
 
 from matrix_master_field.exact_diag import (
     build_two_matrix_qm_hamiltonian,
+    casimir_of_ground_state,
     converge_in_K,
     fock_ladder_ops,
     gaussian_upper,
@@ -217,3 +218,27 @@ def test_v4a_bracket_finite_N():
     e_gauss = gaussian_upper(N, m, g)["E_over_N2"]
     assert 2.0 - 1e-9 <= e_exact
     assert e_exact <= e_gauss + 1e-6   # converged exact sits below the same-N Gaussian
+
+
+def test_casimir_singlet_g0_vacuum():
+    # g=0 ground state = full vacuum, annihilated by every generator => Casimir ~ 0
+    c2 = casimir_of_ground_state(2, m=1.0, g=0.0, K=3)
+    assert abs(c2) < 1e-9
+
+
+def test_casimir_ground_state_is_singlet():
+    # interacting ground state is a singlet (gauge-invariant H, invariant vacuum) -> ~0
+    c2 = casimir_of_ground_state(2, m=1.0, g=0.8, K=6)
+    assert abs(c2) < 1e-6
+
+
+def test_casimir_nonzero_on_non_singlet():
+    # a single-quantum state in one mode is NOT a singlet -> Casimir > 0 (sanity)
+    N, m, K = 2, 1.0, 3
+    occ, _ = fock_ladder_ops(2 * (N * N - 1), K)
+    psi = np.zeros(occ.shape[0])
+    one = np.zeros(2 * (N * N - 1), dtype=np.int64); one[0] = 1
+    idx = {tuple(occ[r]): r for r in range(occ.shape[0])}[tuple(one)]
+    psi[idx] = 1.0
+    c2 = casimir_of_ground_state(N, m, g=0.0, K=K, ground_state=psi)
+    assert c2 > 1e-3
