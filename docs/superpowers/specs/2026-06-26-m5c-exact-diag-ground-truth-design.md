@@ -42,6 +42,12 @@ and will be benchmarked against this. **This spec is sub-project 1 only.**
   of the computed ground state (`≈0`); if the absolute ground state were non-singlet, project.
 - **`g=0` anchor (exact, all N, all truncation):** every mode in `n=0` ⇒ `E=2N²m` ⇒ **`E/N²=2m`**
   (no finite-N correction for the free theory). The setup's hard check.
+- **Elementary finite-N lower bound (rigorous, all N — NOT the planar SDP):**
+  `⟨Tr(P_X²+m²X²)+Tr(P_Y²+m²Y²)⟩ ≥ 2N²m` (each of the `2N²` oscillator modes has energy `≥` its
+  ground value `m`, by the oscillator uncertainty bound) and `−g²⟨Tr[X,Y]²⟩ ≥ 0` (confining), so
+  **`E/N² ≥ 2m` at every finite N**. This — not the large-N SDP relaxation — is the finite-N lower
+  reference for V4a; the planar SDP coincidentally also gives `2m` but is a *large-N* statement that
+  bounds only the `N→∞` extrapolation.
 
 ---
 
@@ -85,7 +91,8 @@ exploits the "decoupled oscillators + few-body quartic" structure.
 | V1 | structure constants + quartic correct | `f_{abc}` and `g²Σ_c L_c²` reproduce `−g²Tr[X,Y]²` to FD tolerance on random Hermitian `X,Y` |
 | V2 | `g=0` anchor | `ground_energy(N, m, 0, K)` gives `E/N²=2m` to machine precision, any `N,K` |
 | V3 | `K`-convergence | `E/N²(K)` converges as `K` grows (report the tail; the reported value is converged to a stated tolerance) |
-| V4 | bracket containment | for `g>0`, `2.0 ≤ E_exact(N)/N² ≤` finite-N Gaussian `⟨H⟩(N)`; and the extrapolated `N→∞` value lies in `[2.0, 2.365]` |
+| V4a | finite-N bracket (rigorous, SAME N) | for `g>0`, `2m ≤ E_exact(N)/N² ≤ ⟨H⟩_Gauss(N)` — lower from the elementary oscillator+confinement bound (above), upper from a *same-N* Gaussian trial state. Report finite-N values **neutrally**; do NOT impose the large-N Gaussian `2.365` (or the planar SDP) on finite N |
+| V4b | large-N adjudication | the `N→∞` extrapolation of `E_exact(N)/N²` (from N=2,3, **with stated assumptions + an uncertainty estimate**) lies in the large-N bracket `[2m, 2.365]` and adjudicates the M5c bounds/master field — this is the only place the planar SDP/Gaussian numbers are invoked |
 | V5 | singlet ground state | Casimir of the ground state `≈0` (else project to the singlet sector) |
 | V6 | the deliverable | `E_exact(N=2)/N²`, `E_exact(N=3)/N²` at `λ∈{0,0.5,1}`, + a 2-point `N→∞` estimate that pins the truth in the bracket and **adjudicates** the M5c bounds/master-field |
 
@@ -98,9 +105,13 @@ Verification medium: Python + `pytest` (numpy/scipy), as M1–M5.
   `K≈10` (basis `~5×10^6`) for tight convergence at `λ=1`. *Mitigation:* exploit sparsity + total-
   quanta truncation; report the `K`-tail honestly; if N=3 won't fully converge at feasible `K`, the
   deliverable degrades to "N=2 exact + an N=3 bound/trend" (still adjudicates the artifact question).
-- **R2 — finite-N vs large-N.** The bounds are large-N (planar); exact diag is finite-N. The clean
-  comparison is `E_exact(N)/N²` for `N=2,3` + extrapolation, plus the finite-N Gaussian `⟨H⟩(N)` as a
-  same-`N` upper sanity. The `g=0` value `2m` is exact at all N (no extrapolation needed there).
+- **R2 — finite-N vs large-N (do NOT conflate; per the adversarial review).** The *finite-N* bracket
+  is `[2m (elementary lower bound, rigorous at all N), ⟨H⟩_Gauss(N) (same-N Gaussian)]` — both apply
+  directly to `E_exact(N)`. The *large-N* Gaussian `2.365` and the planar SDP relaxation are NOT
+  finite-N bounds; they constrain only the `N→∞` extrapolation (V4b), which carries stated
+  assumptions + an uncertainty estimate. A correct finite-N energy is free to sit wherever the
+  same-N bracket allows; the suite must never fail a valid finite-N value for missing the planar
+  numbers. `g=0` gives `2m` exactly at all N (no extrapolation).
 - **R3 — singlet assumption.** If the absolute ground state is not a singlet (V5 fails), restrict to
   the singlet sector (projector built from the SU(N) generators) — adds work but is well-defined.
 
