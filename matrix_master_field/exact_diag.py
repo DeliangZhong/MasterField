@@ -125,6 +125,7 @@ def build_two_matrix_qm_hamiltonian(N, m, g, K, pad=2):
     P_K L_c^2 P_K exactly -> Hermitian, PSD, variational upper bound monotone in K. pad=2 suffices.
     Returned H is ordered to match occupation_basis(n_modes, K) so ground_energy/casimir agree.
     """
+    assert pad >= 2, "pad>=2 required: each L_c shifts total quanta by <=2 (pad=1 is silently wrong)"
     n_tl = N * N - 1
     n_modes = 2 * n_tl
     Kp = K + pad
