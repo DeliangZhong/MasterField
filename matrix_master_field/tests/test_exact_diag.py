@@ -9,6 +9,7 @@ from matrix_master_field.exact_diag import (
     build_two_matrix_qm_hamiltonian,
     casimir_of_ground_state,
     converge_in_K,
+    extrapolate_large_N,
     fock_ladder_ops,
     gaussian_upper,
     ground_energy,
@@ -242,3 +243,20 @@ def test_casimir_nonzero_on_non_singlet():
     psi[idx] = 1.0
     c2 = casimir_of_ground_state(N, m, g=0.0, K=K, ground_state=psi)
     assert c2 > 1e-3
+
+
+def test_extrapolation_recovers_known_1overN2():
+    # synthetic exact 1/N^2 data: e(N) = 2.2 + 0.5/N^2 -> 1/N^2 estimator recovers 2.2
+    vals = {2: 2.2 + 0.5 / 4, 3: 2.2 + 0.5 / 9}
+    out = extrapolate_large_N(vals)
+    assert np.isclose(out["E_inf_1overN2"], 2.2, atol=1e-9)
+
+
+def test_extrapolation_reports_spread_as_uncertainty():
+    vals = {2: 2.30, 3: 2.28}
+    out = extrapolate_large_N(vals)
+    assert out["uncertainty"] == pytest.approx(
+        abs(out["E_inf_1overN2"] - out["E_inf_1overN"]), abs=1e-12
+    )
+    assert min(out["E_inf_1overN2"], out["E_inf_1overN"]) <= out["E_inf"]
+    assert out["E_inf"] <= max(out["E_inf_1overN2"], out["E_inf_1overN"])

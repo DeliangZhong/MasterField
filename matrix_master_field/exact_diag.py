@@ -274,3 +274,59 @@ def gaussian_upper(N, m, g):
     w = float(res.x)
     E = E_of_omega(w)
     return {"E_over_N2": E / (N * N), "E": E, "omega": w}
+
+
+def extrapolate_large_N(values):
+    """2-point N->inf extrapolation from {N: E/N^2}, N in {2,3}.
+
+    Reports BOTH a 1/N^2 model and a 1/N model; their spread is the (honest) uncertainty.
+    Only here are the large-N reference numbers [2m, 2.365] relevant (V4b) -- never at finite N.
+    """
+    e2, e3 = values[2], values[3]
+    # e(N) = E_inf + c / N^2
+    c2 = (e2 - e3) / (1.0 / 4 - 1.0 / 9)
+    einf_n2 = e2 - c2 / 4
+    # e(N) = E_inf + c / N
+    c1 = (e2 - e3) / (1.0 / 2 - 1.0 / 3)
+    einf_n1 = e2 - c1 / 2
+    return {
+        "E_inf": 0.5 * (einf_n2 + einf_n1),
+        "E_inf_1overN2": einf_n2,
+        "E_inf_1overN": einf_n1,
+        "uncertainty": abs(einf_n2 - einf_n1),
+    }
+
+
+def deliverable(m=1.0, lambdas=(0.0, 0.5, 1.0), K2=(8, 10, 12), K3=(4, 6)):
+    """Compute the V6 table: E/N^2 at N=2,3 for each lambda, + the N->inf estimate.
+
+    N=3 is capped at K=6 (~12s/point; padded basis ~7.4e5). Per R1 the heavier K=8 (padded
+    ~5.3e6 states, minutes + several GB with the O(n_tl^3) assembly) is DEFERRED; N=3 therefore
+    carries a residual K-tail (~6e-3 at lambda=1) reported honestly. N=2 is converged (tail ~1e-4
+    at K=12). Probed N=3 lambda=1 anchors: K=2->2.3333, K=4->2.3133, K=6->2.3076 (monotone)."""
+    report = {}
+    for lam in lambdas:
+        row = {}
+        for N, Klist in [(2, K2), (3, K3)]:
+            g = np.sqrt(lam / N) if lam > 0 else 0.0
+            conv = converge_in_K(N, m, g, list(Klist))
+            c2 = casimir_of_ground_state(N, m, g, Klist[-1])
+            row[N] = {"E_over_N2": conv["value"], "tail": conv["tail"],
+                      "series": conv["series"], "casimir": c2,
+                      "gaussian": gaussian_upper(N, m, g)["E_over_N2"]}
+        row["extrap"] = extrapolate_large_N({2: row[2]["E_over_N2"], 3: row[3]["E_over_N2"]})
+        report[lam] = row
+    return report
+
+
+if __name__ == "__main__":
+    rep = deliverable()
+    for lam, row in rep.items():
+        print(f"lambda={lam}")
+        for N in (2, 3):
+            r = row[N]
+            print(f"  N={N}: E/N^2={r['E_over_N2']:.5f} (tail {r['tail']:.1e}, "
+                  f"Casimir {r['casimir']:.1e}, Gauss {r['gaussian']:.5f})")
+        ex = row["extrap"]
+        print(f"  N->inf: {ex['E_inf']:.4f} +- {ex['uncertainty']:.4f} "
+              f"[1/N^2 {ex['E_inf_1overN2']:.4f}, 1/N {ex['E_inf_1overN']:.4f}]")
