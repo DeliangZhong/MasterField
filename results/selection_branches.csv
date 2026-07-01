@@ -1,0 +1,4 @@
+level,nV,n_eqs,dim,n_positive_sampled,E_min_pos,E_max_pos,pos_width,positive_is_point,island_in_positive_set,sampled_hit_island
+4,14,48,3,60,0.8660253290228355,9.055778615187679,8.189753286164843,False,True,False
+6,94,326,8,0,0.9557833239887976,2.9698996204202524,2.014116296431455,False,True,False
+8,614,2118,22,0,1.1696695914064603,-inf,nan,False,False,False
