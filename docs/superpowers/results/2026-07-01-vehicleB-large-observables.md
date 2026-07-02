@@ -1,6 +1,49 @@
 # Vehicle B decisive experiment — large-observable reach (KZ two-matrix, master field vs bootstrap)
 
-**Date:** 2026-07-01 · **Branch:** `matrix-master-field` · **Status:** done — thesis **partially falsified** (honest, load-bearing)
+**Date:** 2026-07-01 (resolved 2026-07-02) · **Branch:** `matrix-master-field` · **Status:** done — the
+W=3 "falsification" below was a **loop-cutoff artifact**; finishing the construction (arbitrary W +
+complete basis) **restores the thesis**. Read the UPDATE first.
+
+## UPDATE (2026-07-02) — resolution: the reach knob is W, and the construction works
+
+The `[C]` table below found the deg-5/W=3 operator field *wrong* (outside the rigorous bracket) at
+m[A⁸], m[A¹⁰], and concluded the "free large observables" thesis was partially falsified. **Finishing
+the construction shows that conclusion was premature — it was caused by too small a loop-equation
+cutoff W, not by the construction.** New module `matrix_master_field/kz/opfield_general.py` supplies
+the *complete* self-adjoint operator basis at arbitrary degree (deg 3/5/7/9 → 4/14/50/186 operators;
+the old `sa_monomials` was incomplete — 10 of 14 at degree 5) and an arbitrary-W fit. Sweeping the
+two knobs (`results/kz_reach_vs_degree.csv`):
+
+| config | m[A²] | m[A⁶] | m[A⁸] | m[A¹⁰] | reliable reach | dense fit cost |
+|---|---|---|---|---|---|---|
+| deg-5, **W=3** | 0.4227 | 0.333 ✗ | 0.377 ✗ | 0.473 ✗ | word length **4** | 10 s |
+| deg-5, **W=5** | 0.4216 | 0.320 ✓ | **0.344 ✓** | **0.400 ✓** | word length **10** | **9.2 h** |
+| deg-7, **W=3** | 0.4204 | 0.360 ✗ | 0.518 ✗ | 0.908 ✗ | word length **4** | 31 min |
+
+(rigorous brackets: A⁶[0.319,0.330], A⁸[0.333,0.355], A¹⁰[0.380,0.431], all @cutoff-10.)
+
+**Findings.**
+1. **W (the loop-equation cutoff) is the reach knob — not the basis degree.** At W=5 the deg-5
+   operator field lands INSIDE every rigorous bracket through A¹⁰ (the largest the bootstrap can
+   check), including A⁸/A¹⁰ which were outside at W=3. A richer *basis* at W=3 (deg-7, 50 operators)
+   does **not** help — its high moments are even worse. Reliable reach ≈ 2W (word length ≈ twice the
+   loop cutoff): the operator-field analogue of raising the bootstrap cutoff.
+2. **So the thesis is restored, cost-aware.** The operator field *does* deliver reliable large
+   observables — as points inside the rigorous brackets where the bootstrap gives intervals, and it
+   evaluates lengths > 10 the bootstrap cannot reach at all (trustworthy up to ~2W). It is not "free":
+   you pay through W.
+3. **The dense cost explodes with W** — 9.2 h for the W=5 fit (jax unrolls the ~2·(2⁶−2)-term loop
+   loss; dense Fock matvecs). This is the quantitative motivation for the matrix-free / sparse-Fock
+   lift (`cuntz_bootstrap/matfree_expm.py`): to push W (hence reach) at feasible cost. Reaching word
+   length 16 needs W≈8, dense-infeasible.
+
+**Net:** Vehicle B is a working construction whose reliable reach scales with the loop cutoff W; the
+open engineering question is cost, answered by the matrix-free lift. The W=3 analysis below stands as
+correct *for W=3* and is what flagged that W must scale with the observable.
+
+---
+
+*(original 2026-07-01 analysis, W=3, follows)*
 
 Tests the program's core claim on a model with ground truth: does the operator/Cuntz–Fock master
 field deliver *reliable* large-observable values (long words) that the convex bootstrap cannot reach?
