@@ -20,7 +20,7 @@ program. The idea and most of its ingredients are prior art:
 |---|---|---|
 | Master field as N=∞ saddle | Gopakumar–Gross, hep-th/9411021 | used, not novel |
 | Cuntz/Fock operator representation | Gopakumar–Gross hep-th/9411021; Douglas hep-th/9411025 | used, not novel |
-| Loop-residual minimization to build the master field | Maeta arXiv:2605.10720 (one/two-matrix, finite-dim regularization, no positivity); de Mello Koch–Jevicki et al. arXiv:2108.08803, arXiv:2306.00935 (collective variational + SDP); Engelhardt–Levit hep-th/9609216 | used, not novel |
+| Loop-residual minimization to build the master field | Maeta arXiv:2605.10720 (one/two-matrix, finite-dim regularization, no positivity); de Mello Koch–Jevicki et al. arXiv:2108.08803 and Mathaba–Mulokwe–Rodrigues arXiv:2306.00935 (collective variational + SDP); Engelhardt–Levit hep-th/9609216 | used, not novel |
 | "Construction gives points where the bootstrap gives bounds" framing | Maeta arXiv:2605.10720 | used, not novel |
 | Rigorous existence of the master field | Guionnet–Shlyakhtenko arXiv:1204.2182 (matrix); Lévy arXiv:1112.2452 (2D gauge) | context |
 
@@ -363,8 +363,8 @@ agree. Validating it against a case with known shared bias is future work.
   hep-th/9411021; Douglas hep-th/9411025).
 - Loop-residual minimization to construct the master field (Maeta arXiv:2605.10720 —
   one/two-matrix, finite-dim regularization, no positivity; de Mello Koch et al.
-  arXiv:2108.08803, arXiv:2306.00935 — collective variational + SDP; Engelhardt–Levit
-  hep-th/9609216).
+  arXiv:2108.08803 and Mathaba–Mulokwe–Rodrigues arXiv:2306.00935 — collective variational
+  + SDP; Engelhardt–Levit hep-th/9609216).
 - The "construction gives points where the bootstrap gives bounds" framing (Maeta
   arXiv:2605.10720).
 
