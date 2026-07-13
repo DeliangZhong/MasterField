@@ -1,0 +1,103 @@
+### engine: L_trunc=6 dim=5461 nnz=36409 (word_pairs 0.6s) loops=6 edge_mode=reps rp_cut=3 n_steps=4000 lr=0.005 weights={'loop_eq': 1.0, 'cyc': 10.0, 'rp': 1.0, 'sym': 1.0}
+### rp_paths: n=40 (length_cutoff=3)
+### MF-REACH6LITE: L_trunc=6 dim=5461 seed=0 lams=(8.0, 5.0, 3.0, 2.0)
+### DISASTER-RECOVERY [MF-REACH6LITE]: no completed stage ckpt; warm-starting from params_rolling.npy (mid-stage save; stage restarts, optimizer fresh)
+  --- MF-REACH6LITE: lam=8.0 ---
+  step-0 wall = 57.05s
+  step      0  L = 1.555282e-04
+  step    666  L = 8.675186e-03
+  step   1332  L = 1.096863e-05
+  step   1998  L = 4.317220e-06
+  step   2664  L = 2.750789e-06
+  step   3330  L = 2.260848e-06
+  step   3996  L = 2.155063e-06
+  step   3999  L = 2.154900e-06
+
+======================================================================
+MF-REACH6LITE[0]: lam=8.0 w+=0.06250 Wplaq=0.06167 loss=2.15e-06
+======================================================================
+  plaq  A= 1 model=   0.06167 exact=    0.06250 err=    1.32%
+  2x1   A= 2 model=   0.00064 exact=    0.00391 err=   83.68%
+  1x2   A= 2 model=   0.00062 exact=    0.00391 err=   84.07%
+  3x1   A= 3 model=   0.00270 exact=    0.00024 err= 1007.44%
+  2x2   A= 4 model=   0.00135 exact=    0.00002 err= 8738.74%
+  3x2   A= 6 model=  -0.05100 exact=    0.00000 err=85566312.48%
+  3x3   A= 9 model=  -0.05604 exact=    0.00000 err=385099601016.80%
+  --- MF-REACH6LITE: lam=5.0 ---
+  step-0 wall = 7.22s
+  step      0  L = 1.097923e-02
+  step    666  L = 3.070246e-05
+  step   1332  L = 3.814350e-05
+  step   1998  L = 1.408481e-05
+  step   2664  L = 8.624641e-06
+  step   3330  L = 6.920869e-06
+  step   3996  L = 6.555840e-06
+  step   3999  L = 6.555281e-06
+
+======================================================================
+MF-REACH6LITE[1]: lam=5.0 w+=0.10000 Wplaq=0.09815 loss=6.56e-06
+======================================================================
+  plaq  A= 1 model=   0.09815 exact=    0.10000 err=    1.85%
+  2x1   A= 2 model=   0.00243 exact=    0.01000 err=   75.71%
+  1x2   A= 2 model=   0.00225 exact=    0.01000 err=   77.50%
+  3x1   A= 3 model=   0.00397 exact=    0.00100 err=  296.95%
+  2x2   A= 4 model=   0.00037 exact=    0.00010 err=  272.99%
+  3x2   A= 6 model=  -0.05438 exact=    0.00000 err=5438240.35%
+  3x3   A= 9 model=  -0.06531 exact=    0.00000 err=6530817149.22%
+  --- MF-REACH6LITE: lam=3.0 ---
+  step-0 wall = 6.99s
+  step      0  L = 3.431882e-02
+  step    666  L = 4.000797e-06
+  step   1332  L = 2.242764e-06
+  step   1998  L = 8.217266e-07
+  step   2664  L = 4.949751e-07
+  step   3330  L = 3.926188e-07
+  step   3996  L = 3.706683e-07
+  step   3999  L = 3.706347e-07
+
+======================================================================
+MF-REACH6LITE[2]: lam=3.0 w+=0.16667 Wplaq=0.16286 loss=3.71e-07
+======================================================================
+  plaq  A= 1 model=   0.16286 exact=    0.16667 err=    2.28%
+  2x1   A= 2 model=   0.00624 exact=    0.02778 err=   77.54%
+  1x2   A= 2 model=   0.00617 exact=    0.02778 err=   77.78%
+  3x1   A= 3 model=   0.00298 exact=    0.00463 err=   35.66%
+  2x2   A= 4 model=  -0.00028 exact=    0.00077 err=  135.90%
+  3x2   A= 6 model=  -0.04304 exact=    0.00002 err=200911.10%
+  3x3   A= 9 model=  -0.04825 exact=    0.00000 err=48620115.21%
+  --- MF-REACH6LITE: lam=2.0 ---
+  step-0 wall = 7.83s
+  step      0  L = 5.321602e-02
+  step    666  L = 7.232991e-07
+  step   1332  L = 4.667425e-07
+  step   1998  L = 1.439985e-07
+  step   2664  L = 8.092915e-08
+  step   3330  L = 6.125465e-08
+  step   3996  L = 5.707071e-08
+  step   3999  L = 5.706432e-08
+
+======================================================================
+MF-REACH6LITE[3]: lam=2.0 w+=0.25000 Wplaq=0.23846 loss=5.71e-08
+======================================================================
+  plaq  A= 1 model=   0.23846 exact=    0.25000 err=    4.62%
+  2x1   A= 2 model=   0.01218 exact=    0.06250 err=   80.52%
+  1x2   A= 2 model=   0.01214 exact=    0.06250 err=   80.58%
+  3x1   A= 3 model=   0.00086 exact=    0.01562 err=   94.49%
+  2x2   A= 4 model=  -0.00113 exact=    0.00391 err=  128.90%
+  3x2   A= 6 model=  -0.03854 exact=    0.00024 err=15884.15%
+  3x3   A= 9 model=  -0.03808 exact=    0.00000 err=998288.13%
+### MF-REACH6LITE wall=124470.5s
+### diagnose [MF-REACH6LITE]:
+  dir 1: ||H||~10.3477 last_Taylor_rel=6.45e-03 |‖u‖-1|=7.06e-04 [WARN]
+  dir 2: ||H||~10.3272 last_Taylor_rel=5.00e-03 |‖u‖-1|=4.26e-04 [WARN]
+### verify_embedding [MF-REACH6LITE]: max_coeff_err=0.0e+00 n_misplaced=0 W_plaq_gap=2.33e-01 (small=0.238462 big=0.005851)
+
+### eval_at [MF-REACH6LITE]: L_train=6 L_eval=7 lam=2.0
+  loop   A   model@Ltr   model@Lev       exact   |dev@Lev|
+  plaq   1     0.23846     0.00585     0.25000    2.44e-01
+  2x1    2     0.01218     0.05810     0.06250    4.40e-03
+  1x2    2     0.01214     0.00285     0.06250    5.97e-02
+  3x1    3     0.00086     0.00461     0.01562    1.10e-02
+  2x2    4    -0.00113    -0.01876     0.00391    2.27e-02
+  3x2    6    -0.03854     0.00996     0.00024    9.72e-03
+  3x3    9    -0.03808     0.00916     0.00000    9.16e-03  (exact<1e-4: rel-err is noise)

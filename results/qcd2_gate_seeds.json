@@ -1,0 +1,102 @@
+[
+  {
+    "seed": 0,
+    "kind": "cold",
+    "final_loss": 0.0010709083575352646,
+    "W_plaq": 0.2530430472651318,
+    "W_2x1": 0.073647427424639,
+    "W_2x2": 0.038304018285077145,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 0,
+    "kind": "cont",
+    "final_loss": 1.0599700579849176e-06,
+    "W_plaq": 0.24895018430641364,
+    "W_2x1": 0.057800387066539304,
+    "W_2x2": 0.04026550218651011,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 1,
+    "kind": "cold",
+    "final_loss": 0.0007323793584950693,
+    "W_plaq": 0.24900397076306605,
+    "W_2x1": 0.05357391308453449,
+    "W_2x2": 0.023753953318009037,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 1,
+    "kind": "cont",
+    "final_loss": 1.1733921204746492e-05,
+    "W_plaq": 0.24805908852913447,
+    "W_2x1": 0.053115856069058484,
+    "W_2x2": 0.02507036754479194,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 2,
+    "kind": "cold",
+    "final_loss": 0.0006708111023925341,
+    "W_plaq": 0.2502564736702742,
+    "W_2x1": 0.06210311308306168,
+    "W_2x2": 0.0341626722902929,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 2,
+    "kind": "cont",
+    "final_loss": 4.4737604204487413e-07,
+    "W_plaq": 0.24845375873754666,
+    "W_2x1": 0.055505570299886106,
+    "W_2x2": 0.03448799440276803,
+    "any_negative": false,
+    "physical": true
+  },
+  {
+    "seed": 3,
+    "kind": "cold",
+    "final_loss": 0.0006275250105450869,
+    "W_plaq": 0.248350469280945,
+    "W_2x1": 0.051550059185752874,
+    "W_2x2": 0.046533042837337134,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 3,
+    "kind": "cont",
+    "final_loss": 1.0321574506962742e-07,
+    "W_plaq": 0.24716298225743266,
+    "W_2x1": 0.049695818680699694,
+    "W_2x2": 0.05179019603151948,
+    "any_negative": true,
+    "physical": false
+  },
+  {
+    "seed": 4,
+    "kind": "cold",
+    "final_loss": 0.003683593024076041,
+    "W_plaq": 0.25043256768342587,
+    "W_2x1": 0.06249321407904824,
+    "W_2x2": 0.04000301508091386,
+    "any_negative": false,
+    "physical": true
+  },
+  {
+    "seed": 4,
+    "kind": "cont",
+    "final_loss": 6.113835139606944e-09,
+    "W_plaq": 0.24681185414758428,
+    "W_2x1": 0.04815075125335887,
+    "W_2x2": 0.03348712880287189,
+    "any_negative": false,
+    "physical": true
+  }
+]
